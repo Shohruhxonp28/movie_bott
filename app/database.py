@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, Asyn
 from sqlalchemy import select, update, delete, func
 from sqlalchemy.orm import selectinload
 from app.config import DATABASE_URL
-from app.models import Base, User, Movie, RequiredChannel, Setting, Series, SeriesEpisode
+from app.models import Base, User, Movie, RequiredChannel, Setting, Series, SeriesEpisode, VipPlan
 
 # Create async engine
 engine = create_async_engine(DATABASE_URL, echo=False)
@@ -16,6 +16,19 @@ async def init_db():
     async with engine.begin() as conn:
         # Create tables if they don't exist
         await conn.run_sync(Base.metadata.create_all)
+        
+    # Seed default plans if empty
+    async with AsyncSessionLocal() as session:
+        async with session.begin():
+            result = await session.execute(select(func.count(VipPlan.id)))
+            count = result.scalar()
+            if (count or 0) == 0:
+                session.add_all([
+                    VipPlan(name="1 Oylik", months=1, price="50,000 UZS"),
+                    VipPlan(name="3 Oylik", months=3, price="120,000 UZS"),
+                    VipPlan(name="12 Oylik", months=12, price="400,000 UZS")
+                ])
+                await session.commit()
 
 async def get_or_create_user(user_id: int, username: Optional[str], full_name: str) -> User:
     async with AsyncSessionLocal() as session:
@@ -60,6 +73,17 @@ async def update_vip_until(user_id: int, months: int) -> Optional[datetime.datet
             new_vip_until = db_user.vip_until
             await session.commit()
             return new_vip_until
+
+async def remove_user_vip(user_id: int) -> bool:
+    async with AsyncSessionLocal() as session:
+        async with session.begin():
+            result = await session.execute(select(User).where(User.id == user_id))
+            db_user = result.scalars().first()
+            if db_user:
+                db_user.vip_until = None
+                await session.commit()
+                return True
+            return False
 
 # --- MOVIE FUNCTIONS ---
 async def add_movie(title: str, channel_id: int, message_id: int, file_id: str) -> Movie:
@@ -270,6 +294,33 @@ async def set_setting(key: str, value: str):
                 setting = Setting(key=key, value=value)
                 session.add(setting)
             await session.commit()
+
+# --- VIP PLANS ---
+async def get_vip_plans() -> List[VipPlan]:
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(select(VipPlan).order_by(VipPlan.months.asc()))
+        return list(result.scalars().all())
+
+async def add_vip_plan(name: str, months: int, price: str) -> VipPlan:
+    async with AsyncSessionLocal() as session:
+        async with session.begin():
+            plan = VipPlan(name=name, months=months, price=price)
+            session.add(plan)
+            await session.commit()
+            return plan
+
+async def delete_vip_plan(plan_id: int) -> bool:
+    async with AsyncSessionLocal() as session:
+        async with session.begin():
+            result = await session.execute(delete(VipPlan).where(VipPlan.id == plan_id))
+            await session.commit()
+            return (result.rowcount or 0) > 0
+
+async def get_vip_plan_by_id(plan_id: int) -> Optional[VipPlan]:
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(select(VipPlan).where(VipPlan.id == plan_id))
+        return result.scalars().first()
+
 
 async def get_active_vip_users() -> List[User]:
     async with AsyncSessionLocal() as session:

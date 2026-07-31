@@ -1,7 +1,7 @@
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
 from typing import List
-from app.models import Movie, RequiredChannel, Series
+from app.models import Movie, RequiredChannel, Series, User, VipPlan
 
 def get_main_keyboard() -> ReplyKeyboardMarkup:
     builder = ReplyKeyboardBuilder()
@@ -43,7 +43,17 @@ def get_join_channels_keyboard(channels: List[RequiredChannel]) -> InlineKeyboar
     )
     return builder.as_markup()
 
+def get_user_vip_plans_keyboard(plans: List[VipPlan]) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    for plan in plans:
+        builder.row(
+            InlineKeyboardButton(text=f"⭐ {plan.name} ({plan.price})", callback_data=f"vip_plan_{plan.months}")
+        )
+    builder.row(InlineKeyboardButton(text="🔙 Orqaga", callback_data="vip_back"))
+    return builder.as_markup()
+
 def get_vip_plans_keyboard() -> InlineKeyboardMarkup:
+    # Deprecated: use get_user_vip_plans_keyboard instead
     builder = InlineKeyboardBuilder()
     builder.row(
         InlineKeyboardButton(text="1 Oylik", callback_data="vip_plan_1"),
@@ -160,21 +170,57 @@ def get_broadcast_confirm_keyboard() -> InlineKeyboardMarkup:
     )
     return builder.as_markup()
 
-def get_admin_vip_keyboard() -> InlineKeyboardMarkup:
+def get_admin_vip_keyboard(vip_users: List[User], plans: List[VipPlan]) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
+    
+    # 1. VIP Users List buttons
+    if vip_users:
+        builder.row(InlineKeyboardButton(text="👥 VIP Foydalanuvchilar (Boshqarish):", callback_data="noop"))
+        for u in vip_users:
+            builder.row(
+                InlineKeyboardButton(
+                    text=f"👤 {u.full_name[:20]} [ID: {u.id}]",
+                    callback_data=f"admin_manage_vip_user_{u.id}"
+                )
+            )
+            
+    # 2. VIP Plans List buttons (to delete)
+    if plans:
+        builder.row(InlineKeyboardButton(text="📋 VIP Tariflar (O'chirish):", callback_data="noop"))
+        for p in plans:
+            builder.row(
+                InlineKeyboardButton(
+                    text=f"❌ O'chirish: {p.name} ({p.price})",
+                    callback_data=f"admin_delete_vip_plan_{p.id}"
+                )
+            )
+            
+    # 3. Operations buttons
     builder.row(
         InlineKeyboardButton(text="➕ VIP qo'shish (Manual)", callback_data="admin_add_vip"),
-        InlineKeyboardButton(text="🔙 Orqaga", callback_data="admin_back")
+        InlineKeyboardButton(text="➕ Tarif qo'shish", callback_data="admin_add_vip_plan")
     )
+    builder.row(InlineKeyboardButton(text="🔙 Orqaga", callback_data="admin_back"))
     return builder.as_markup()
 
-def get_admin_manual_vip_plans_keyboard(user_id: int) -> InlineKeyboardMarkup:
+def get_admin_vip_user_manage_keyboard(user_id: int) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.row(
-        InlineKeyboardButton(text="1 Oylik", callback_data=f"admin_manual_vip_1_{user_id}"),
-        InlineKeyboardButton(text="3 Oylik", callback_data=f"admin_manual_vip_3_{user_id}"),
-        InlineKeyboardButton(text="12 Oylik", callback_data=f"admin_manual_vip_12_{user_id}")
+        InlineKeyboardButton(text="➕ Obunani uzaytirish", callback_data=f"admin_vip_user_extend_{user_id}"),
+        InlineKeyboardButton(text="❌ Obunani bekor qilish", callback_data=f"admin_vip_user_cancel_{user_id}")
     )
+    builder.row(InlineKeyboardButton(text="🔙 VIP bo'limiga qaytish", callback_data="admin_vip_plans"))
+    return builder.as_markup()
+
+def get_admin_manual_vip_plans_keyboard(user_id: int, plans: List[VipPlan]) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    for plan in plans:
+        builder.row(
+            InlineKeyboardButton(
+                text=f"{plan.name} ({plan.months} oy)",
+                callback_data=f"admin_manual_vip_{plan.months}_{user_id}"
+            )
+        )
     builder.row(InlineKeyboardButton(text="🔙 Bekor qilish", callback_data="admin_vip_plans"))
     return builder.as_markup()
 

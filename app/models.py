@@ -67,3 +67,11 @@ class Setting(Base):
 
     key: Mapped[str] = mapped_column(String(100), primary_key=True)
     value: Mapped[str] = mapped_column(String(1000))
+
+class VipPlan(Base):
+    __tablename__ = "vip_plans"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(100))
+    months: Mapped[int] = mapped_column(Integer)
+    price: Mapped[str] = mapped_column(String(100))

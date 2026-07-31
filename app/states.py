@@ -15,6 +15,14 @@ class AddSeriesState(StatesGroup):
 class VIPState(StatesGroup):
     waiting_for_receipt = State()
 
+class AddVipPlanState(StatesGroup):
+    waiting_for_name = State()
+    waiting_for_months = State()
+    waiting_for_price = State()
+
+class ManageVipUserState(StatesGroup):
+    waiting_for_extend_months = State()
+
 class AdminState(StatesGroup):
     waiting_for_card = State()
     waiting_for_broadcast = State()

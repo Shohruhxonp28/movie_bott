@@ -4,11 +4,11 @@ from aiogram.types import CallbackQuery, Message
 from aiogram.fsm.context import FSMContext
 from app.database import (
     get_movie_by_code, get_all_movies, get_movie_count, get_setting,
-    get_or_create_user, get_series_by_code, increment_series_search_count
+    get_or_create_user, get_series_by_code, increment_series_search_count, get_vip_plans
 )
 from app.keyboards import (
-    get_movie_list_keyboard, get_receipt_approval_keyboard, get_vip_plans_keyboard,
-    get_main_keyboard, get_join_channels_keyboard
+    get_movie_list_keyboard, get_receipt_approval_keyboard,
+    get_main_keyboard, get_join_channels_keyboard, get_user_vip_plans_keyboard
 )
 from app.utils import check_user_subscription
 from app.states import VIPState
@@ -23,7 +23,6 @@ async def process_check_subscription(callback: CallbackQuery, state: FSMContext,
     is_subscribed = await check_user_subscription(bot, user_id)
     
     if is_subscribed:
-        # Check if they had a pending code they were trying to access
         data = await state.get_data()
         pending_code = data.get("pending_movie_code")
         
@@ -62,15 +61,13 @@ async def process_check_subscription(callback: CallbackQuery, state: FSMContext,
 
 @callback_router.callback_query(F.data == "buy_vip")
 async def process_buy_vip(callback: CallbackQuery):
-    card = await get_setting("bank_card", "Sozlanmagan")
+    plans = await get_vip_plans()
     text = (
         "⭐ **VIP Obuna**\n\n"
         "VIP foydalanuvchilar homiy kanallarga a'zo bo'lishlari shart emas!\n\n"
-        "💳 **To'lov ma'lumotlari (Bank Kartasi):**\n"
-        f"`{card}`\n\n"
         "Boshlash uchun quyidagi VIP obuna rejalaridan birini tanlang:"
     )
-    await callback.message.edit_text(text, reply_markup=get_vip_plans_keyboard())
+    await callback.message.edit_text(text, reply_markup=get_user_vip_plans_keyboard(plans))
     await callback.answer()
 
 @callback_router.callback_query(F.data.startswith("vip_plan_"))
@@ -79,12 +76,9 @@ async def process_vip_plan_selection(callback: CallbackQuery, state: FSMContext)
     await state.update_data(selected_vip_months=months)
     await state.set_state(VIPState.waiting_for_receipt)
     
-    card = await get_setting("bank_card", "Sozlanmagan")
     text = (
         f"💳 **Reja: {months} Oylik**\n\n"
-        f"Iltimos, VIP obuna to'lovini quyidagi bank kartamizga o'tkazing:\n"
-        f"`{card}`\n\n"
-        "To'lovni amalga oshirgach, **to'lov chekini** (rasm yoki hujjat shaklida) bu yerga yuboring. "
+        "Iltimos, VIP obuna to'lovini amalga oshirgach, **to'lov chekini** (rasm yoki hujjat shaklida) bu yerga yuboring. "
         "Administratorlar to'lovni tez orada tekshirib, VIP obunangizni faollashtirib berishadi."
     )
     await callback.message.edit_text(text)
@@ -220,7 +214,6 @@ async def process_view_episode(callback: CallbackQuery, bot: Bot):
         await callback.answer("⚠️ Avval homiy kanallarga a'zo bo'ling!", show_alert=True)
         return
         
-    # Format: view_episode_{series_code}_{episode_number}
     parts = callback.data.replace("view_episode_", "").split("_")
     series_code = int(parts[0])
     episode_number = int(parts[1])
@@ -230,7 +223,6 @@ async def process_view_episode(callback: CallbackQuery, bot: Bot):
         await callback.answer("❌ Serial topilmadi.", show_alert=True)
         return
         
-    # Find specific episode
     episode = None
     for ep in series.episodes:
         if ep.episode_number == episode_number:

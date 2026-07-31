@@ -3,15 +3,16 @@ from aiogram import Router, F, Bot
 from aiogram.types import Message, InlineKeyboardButton
 from aiogram.filters import Command, CommandObject
 from aiogram.fsm.context import FSMContext
+from app.config import ADMIN_IDS
 from app.database import (
     get_or_create_user, get_movie_by_code, get_all_movies, get_movie_count,
-    get_setting, search_movies_db, increment_search_count,
-    get_series_by_code, search_series_db, increment_series_search_count
+    get_setting, search_movies_db, increment_search_count, get_user,
+    get_series_by_code, search_series_db, increment_series_search_count, get_vip_plans
 )
 from app.keyboards import (
-    get_main_keyboard, get_join_channels_keyboard, get_vip_plans_keyboard,
-    get_share_keyboard, get_movie_list_keyboard, get_share_series_keyboard,
-    get_series_episodes_keyboard, get_series_link_keyboard
+    get_main_keyboard, get_join_channels_keyboard,
+    get_movie_list_keyboard, get_share_keyboard,
+    get_user_vip_plans_keyboard
 )
 from app.utils import check_user_subscription, search_items_fuzzy
 
@@ -48,19 +49,16 @@ async def send_series_to_user(bot: Bot, chat_id: int, series, bot_username: str)
     
     if series.channel_link:
         text += "🍿 Ushbu serialni ko'rish uchun quyidagi havola orqali kanalga o'ting:"
-        # Add link button
         url = series.channel_link.strip()
         if not (url.startswith("http://") or url.startswith("https://")):
             url = f"https://t.me/{url.replace('@', '')}"
         builder.button(text="🍿 Serialni ko'rish (Kanal)", url=url)
     else:
         text += "🍿 Qismni tanlab tomosha qiling:"
-        # Add episodes grid
         for i in range(1, series.episodes_count + 1):
             builder.button(text=f"{i}-qism", callback_data=f"view_episode_{series.series_code}_{i}")
         builder.adjust(4)
         
-    # Append share button
     share_url = f"https://t.me/{bot_username}?start=movie_{series.series_code}"
     builder.row(InlineKeyboardButton(text="📤 Ulashish", url=f"https://t.me/share/url?url={share_url}"))
     
@@ -79,7 +77,6 @@ async def check_and_prompt_subscription(message: Message, bot: Bot, state: FSMCo
     if is_subscribed:
         return True
         
-    # Not subscribed. Save pending code if any
     if pending_movie_code:
         await state.update_data(pending_movie_code=pending_movie_code)
         
@@ -96,17 +93,32 @@ async def check_and_prompt_subscription(message: Message, bot: Bot, state: FSMCo
 
 @user_router.message(Command("start"))
 async def cmd_start(message: Message, command: CommandObject, state: FSMContext, bot: Bot):
-    # Save user to DB
+    # Check if the user exists in DB before creating them (to notify admin of new users)
+    existing_user = await get_user(message.from_user.id)
+    
     user = await get_or_create_user(
         user_id=message.from_user.id,
         username=message.from_user.username,
         full_name=message.from_user.full_name
     )
     
+    # Notify admins if new user registered
+    if not existing_user:
+        for admin_id in ADMIN_IDS:
+            try:
+                username_str = f" (@{message.from_user.username})" if message.from_user.username else ""
+                await bot.send_message(
+                    chat_id=admin_id,
+                    text=f"👥 **Yangi foydalanuvchi qo'shildi!**\n\n"
+                         f"👤 Ismi: {message.from_user.full_name}\n"
+                         f"🆔 ID: `{message.from_user.id}`{username_str}"
+                )
+            except Exception as e:
+                logger.error(f"Failed to send registration alert to admin {admin_id}: {e}")
+                
     bot_info = await bot.get_me()
     bot_username = bot_info.username
     
-    # Check if there is a deep link start parameter (e.g., movie_125)
     args = command.args
     pending_code = None
     if args and args.startswith("movie_"):
@@ -114,7 +126,6 @@ async def cmd_start(message: Message, command: CommandObject, state: FSMContext,
         if code_str.isdigit():
             pending_code = int(code_str)
 
-    # If deep link requested, check subscription
     if pending_code:
         is_subbed = await check_and_prompt_subscription(message, bot, state, pending_code)
         if is_subbed:
@@ -132,7 +143,6 @@ async def cmd_start(message: Message, command: CommandObject, state: FSMContext,
                     await message.answer("Kino topilmadi.")
         return
         
-    # Normal start flow
     is_subbed = await check_user_subscription(bot, message.from_user.id)
     if is_subbed:
         await message.answer(
@@ -166,7 +176,6 @@ async def show_movies_menu(message: Message, bot: Bot, state: FSMContext):
 
 @user_router.message(F.text == "⭐ VIP")
 async def show_vip_menu(message: Message, bot: Bot, state: FSMContext):
-    # Retrieve user information
     user = await get_or_create_user(
         user_id=message.from_user.id,
         username=message.from_user.username,
@@ -181,15 +190,14 @@ async def show_vip_menu(message: Message, bot: Bot, state: FSMContext):
         )
         return
         
-    card = await get_setting("bank_card", "Sozlanmagan")
+    plans = await get_vip_plans()
+    
     text = (
         "⭐ **VIP Obuna**\n\n"
         "VIP foydalanuvchilar homiy kanallarga a'zo bo'lishlari shart emas!\n\n"
-        "💳 **To'lov ma'lumotlari (Bank Kartasi):**\n"
-        f"`{card}`\n\n"
         "Boshlash uchun quyidagi VIP obuna rejalaridan birini tanlang:"
     )
-    await message.answer(text, reply_markup=get_vip_plans_keyboard())
+    await message.answer(text, reply_markup=get_user_vip_plans_keyboard(plans))
 
 @user_router.message(F.text == "ℹ️ Yordam")
 async def show_help_menu(message: Message):
@@ -213,7 +221,6 @@ async def process_search(message: Message, bot: Bot, state: FSMContext):
     bot_info = await bot.get_me()
     bot_username = bot_info.username
     
-    # 1. Code Search (Digits only)
     if query.isdigit():
         code = int(query)
         if code >= 1000:
@@ -230,11 +237,9 @@ async def process_search(message: Message, bot: Bot, state: FSMContext):
                 await message.answer("Kino topilmadi.")
         return
         
-    # 2. Title Search (Fuzzy Match Movies and Series combined)
     movies = await search_movies_db()
     series_list = await search_series_db()
     
-    # Combine items
     combined_items = list(movies) + list(series_list)
     matches = search_items_fuzzy(query, combined_items)
     

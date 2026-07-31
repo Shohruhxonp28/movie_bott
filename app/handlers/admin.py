@@ -1,23 +1,27 @@
 import logging
+import datetime
 from aiogram import Router, F, Bot
-from aiogram.types import Message, CallbackQuery
-from aiogram.filters import Command, StateFilter
+from aiogram.types import Message, CallbackQuery, InlineKeyboardButton
+from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from app.config import ADMIN_IDS, STORAGE_CHANNEL_ID
-from app.states import AdminState, AddMovieState, AddSeriesState
+from app.states import AdminState, AddMovieState, AddSeriesState, AddVipPlanState, ManageVipUserState
 from app.database import (
     get_statistics, get_setting, set_setting, get_required_channels,
     add_required_channel, delete_required_channel, add_movie,
     get_all_movies, get_movie_count, get_movie_by_code, rename_movie,
     replace_movie_file, delete_movie, update_vip_until,
     add_series, add_series_episode, get_all_series, get_series_count,
-    get_series_by_code, rename_series, delete_series, get_active_vip_users
+    get_series_by_code, rename_series, delete_series, get_active_vip_users,
+    get_vip_plans, add_vip_plan, delete_vip_plan, remove_user_vip, get_user
 )
 from app.keyboards import (
     get_admin_panel, get_admin_channels_keyboard, get_admin_movies_keyboard,
     get_movie_detail_keyboard, get_broadcast_confirm_keyboard,
     get_receipt_approval_keyboard, get_series_type_keyboard,
-    get_admin_series_keyboard, get_series_detail_keyboard
+    get_admin_series_keyboard, get_series_detail_keyboard,
+    get_admin_vip_keyboard, get_admin_vip_user_manage_keyboard,
+    get_admin_manual_vip_plans_keyboard
 )
 
 logger = logging.getLogger(__name__)
@@ -54,14 +58,13 @@ async def show_stats(callback: CallbackQuery):
         "📊 **Bot statistikasi**\n\n"
         f"👥 Jami foydalanuvchilar: {stats['total_users']}\n"
         f"⭐ VIP foydalanuvchilar: {stats['vip_users']}\n"
-        f"🎬 Jami kinolar: {stats['movies']}\n"
+        f"🎬 Jami filmlar: {stats['movies']}\n"
+        f"📺 Jami seriallar: {stats['series']}\n"
         f"🔍 Jami qidiruvlar: {stats['searches']}\n"
         f"📅 Bugungi ro'yxatdan o'tganlar: {stats['today_users']}"
     )
     await callback.message.edit_text(text, reply_markup=get_admin_panel())
     await callback.answer()
-
-
 
 # --- REQUIRED CHANNELS ---
 @admin_router.callback_query(F.data == "admin_channels")
@@ -123,7 +126,7 @@ async def delete_channel_action(callback: CallbackQuery):
         channels = await get_required_channels()
         await callback.message.edit_text("📺 Majburiy kanallar ro'yxati yangilandi:", reply_markup=get_admin_channels_keyboard(channels))
     else:
-        await callback.answer("❌ Kanal topilmadi.")
+        await callback.answer("❌ Kanal not found.")
 
 # --- BROADCAST ---
 @admin_router.callback_query(F.data == "admin_broadcast")
@@ -437,32 +440,34 @@ async def reject_vip(callback: CallbackQuery, bot: Bot):
     await callback.message.edit_text(f"❌ Foydalanuvchi {user_id} uchun VIP so'rovi rad etildi.")
     await callback.answer()
 
-# --- MANUAL VIP MANAGEMENT (ADMIN) ---
+# --- VIP MANAGEMENT & PLANS (ADMIN) ---
 @admin_router.callback_query(F.data == "admin_vip_plans")
 async def admin_vip_menu(callback: CallbackQuery):
     if not is_admin_callback(callback):
         return
-    from app.keyboards import get_admin_vip_keyboard
     vip_users = await get_active_vip_users()
+    plans = await get_vip_plans()
     
     text = "⭐ **VIP bo'limi (Admin)**\n\n"
-    text += "👥 **Hozirgi VIP obunaga ega foydalanuvchilar:**\n"
+    text += "👥 **VIP obunaga ega foydalanuvchilar:**\n"
     if not vip_users:
-        text += "Hozircha VIP foydalanuvchilar yo'q.\n"
+        text += "Hozircha VIP foydalanuvchilar mavjud emas.\n"
     else:
         for idx, u in enumerate(vip_users, 1):
             username_str = f" (@{u.username})" if u.username else ""
             expiry_str = u.vip_until.strftime("%Y-%m-%d %H:%M")
             text += f"{idx}. {u.full_name}{username_str} [ID: `{u.id}`] - {expiry_str} gacha\n"
             
-    text += "\n⭐ **VIP obuna tariflari (Foydalanuvchilar uchun):**\n"
-    text += "- 1 Oylik\n"
-    text += "- 3 Oylik\n"
-    text += "- 12 Oylik\n"
-    
+    text += "\n⭐ **Hozirgi faol VIP tariflari:**\n"
+    if not plans:
+        text += "Tariflar mavjud emas. Iltimos, tarif qo'shing."
+    else:
+        for p in plans:
+            text += f"- {p.name} ({p.months} oy) - {p.price}\n"
+            
     await callback.message.edit_text(
         text,
-        reply_markup=get_admin_vip_keyboard()
+        reply_markup=get_admin_vip_keyboard(vip_users, plans)
     )
     await callback.answer()
 
@@ -484,11 +489,17 @@ async def admin_save_manual_vip_id(message: Message, state: FSMContext):
         return
     
     user_id = int(user_id_str)
-    from app.keyboards import get_admin_manual_vip_plans_keyboard
+    plans = await get_vip_plans()
+    
+    if not plans:
+        await message.answer("❌ VIP tariflar topilmadi. Avval tarif qo'shing.", reply_markup=get_admin_panel())
+        await state.clear()
+        return
+        
     await state.clear()
     await message.answer(
         f"👤 Tanlangan foydalanuvchi ID: `{user_id}`\n\nUshbu foydalanuvchiga qancha muddatga VIP obuna bermoqchisiz?",
-        reply_markup=get_admin_manual_vip_plans_keyboard(user_id)
+        reply_markup=get_admin_manual_vip_plans_keyboard(user_id, plans)
     )
 
 @admin_router.callback_query(F.data.startswith("admin_manual_vip_"))
@@ -511,11 +522,128 @@ async def admin_grant_manual_vip(callback: CallbackQuery, bot: Bot):
             pass
         await callback.message.edit_text(
             f"✅ Foydalanuvchi (`{user_id}`) uchun {months} oylik VIP muvaffaqiyatli faollashtirildi!\n"
-            f"Muddat: {new_expiry.strftime('%Y-%m-%d')}"
+            f"Muddat: {new_expiry.strftime('%Y-%m-%d')}",
+            reply_markup=get_admin_panel()
         )
     else:
-        await callback.message.edit_text("❌ Foydalanuvchi topilmadi. U kamida bir marta botni start qilgan bo'lishi kerak.")
+        await callback.message.edit_text("❌ Foydalanuvchi topilmadi. U kamida bir marta botni start qilgan bo'lishi kerak.", reply_markup=get_admin_panel())
     await callback.answer()
+
+# --- VIP USER MANAGEMENT ---
+@admin_router.callback_query(F.data.startswith("admin_manage_vip_user_"))
+async def admin_manage_vip_user(callback: CallbackQuery):
+    if not is_admin_callback(callback):
+        return
+    user_id = int(callback.data.replace("admin_manage_vip_user_", ""))
+    user = await get_user(user_id)
+    if not user:
+        await callback.answer("Foydalanuvchi topilmadi.", show_alert=True)
+        return
+        
+    username_str = f" (@{user.username})" if user.username else ""
+    expiry_str = user.vip_until.strftime("%Y-%m-%d %H:%M") if user.vip_until else "Yo'q"
+    
+    text = f"👤 **VIP Foydalanuvchi Boshqaruvi**\n\n" \
+           f"Ismi: {user.full_name}{username_str}\n" \
+           f"ID: `{user.id}`\n" \
+           f"VIP muddati: {expiry_str} UTC gacha"
+           
+    await callback.message.edit_text(text, reply_markup=get_admin_vip_user_manage_keyboard(user_id))
+    await callback.answer()
+
+@admin_router.callback_query(F.data.startswith("admin_vip_user_cancel_"))
+async def admin_vip_user_cancel(callback: CallbackQuery, bot: Bot):
+    if not is_admin_callback(callback):
+        return
+    user_id = int(callback.data.replace("admin_vip_user_cancel_", ""))
+    success = await remove_user_vip(user_id)
+    if success:
+        try:
+            await bot.send_message(
+                chat_id=user_id,
+                text="❌ **Sizning VIP obunangiz bekor qilindi.**"
+            )
+        except Exception:
+            pass
+        await callback.answer("VIP obuna bekor qilindi.")
+        # Go back to VIP menu
+        await admin_vip_menu(callback)
+    else:
+        await callback.answer("Xatolik yuz berdi.", show_alert=True)
+
+@admin_router.callback_query(F.data.startswith("admin_vip_user_extend_"))
+async def admin_vip_user_extend(callback: CallbackQuery):
+    if not is_admin_callback(callback):
+        return
+    user_id = int(callback.data.replace("admin_vip_user_extend_", ""))
+    plans = await get_vip_plans()
+    
+    if not plans:
+        await callback.answer("Tariflar topilmadi. Avval tarif qo'shing.", show_alert=True)
+        return
+        
+    await callback.message.edit_text(
+        f"👤 User ID: `{user_id}`\n\nVIP obunani necha oyga uzaytirmoqchisiz?",
+        reply_markup=get_admin_manual_vip_plans_keyboard(user_id, plans)
+    )
+    await callback.answer()
+
+# --- VIP PLANS MANAGEMENT ---
+@admin_router.callback_query(F.data == "admin_add_vip_plan")
+async def admin_add_vip_plan_prompt(callback: CallbackQuery, state: FSMContext):
+    if not is_admin_callback(callback):
+        return
+    await state.set_state(AddVipPlanState.waiting_for_name)
+    await callback.message.edit_text("📋 Tarif nomini kiriting (masalan: 1 Oylik):")
+    await callback.answer()
+
+@admin_router.message(AddVipPlanState.waiting_for_name)
+async def admin_add_vip_plan_name(message: Message, state: FSMContext):
+    if not is_admin(message):
+        return
+    name = message.text.strip()
+    await state.update_data(plan_name=name)
+    await state.set_state(AddVipPlanState.waiting_for_months)
+    await message.answer("📅 Ushbu tarif necha oy amal qiladi? (Faqat raqam yozing, masalan: 1):")
+
+@admin_router.message(AddVipPlanState.waiting_for_months)
+async def admin_add_vip_plan_months(message: Message, state: FSMContext):
+    if not is_admin(message):
+        return
+    months_str = message.text.strip()
+    if not months_str.isdigit():
+        await message.answer("❌ Xato! Iltimos faqat raqam yozing:")
+        return
+        
+    months = int(months_str)
+    await state.update_data(plan_months=months)
+    await state.set_state(AddVipPlanState.waiting_for_price)
+    await message.answer("💳 Tarif narxini yoki tavsifini yozing (masalan: 50,000 UZS):")
+
+@admin_router.message(AddVipPlanState.waiting_for_price)
+async def admin_add_vip_plan_price(message: Message, state: FSMContext):
+    if not is_admin(message):
+        return
+    price = message.text.strip()
+    data = await state.get_data()
+    name = data.get("plan_name")
+    months = data.get("plan_months")
+    
+    await add_vip_plan(name, months, price)
+    await state.clear()
+    await message.answer("✅ VIP Tarif muvaffaqiyatli qo'shildi!", reply_markup=get_admin_panel())
+
+@admin_router.callback_query(F.data.startswith("admin_delete_vip_plan_"))
+async def admin_delete_vip_plan(callback: CallbackQuery):
+    if not is_admin_callback(callback):
+        return
+    plan_id = int(callback.data.replace("admin_delete_vip_plan_", ""))
+    success = await delete_vip_plan(plan_id)
+    if success:
+        await callback.answer("Tarif o'chirildi.")
+        await admin_vip_menu(callback)
+    else:
+        await callback.answer("Tarifni o'chirishda xatolik yuz berdi.", show_alert=True)
 
 # --- ADD SERIES FLOW (ADMIN) ---
 @admin_router.callback_query(F.data == "admin_add_series")
