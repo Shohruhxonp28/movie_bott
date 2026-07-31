@@ -14,10 +14,24 @@ def get_join_channels_keyboard(channels: List[RequiredChannel]) -> InlineKeyboar
     builder = InlineKeyboardBuilder()
     for idx, chan in enumerate(channels, 1):
         url = chan.invite_link.strip()
-        # Ensure URL starts with http:// or https:// to prevent BUTTON_URL_INVALID
-        if not (url.startswith("http://") or url.startswith("https://")):
-            clean_url = url.replace("@", "")
-            url = f"https://t.me/{clean_url}"
+        # Handle username starting with @
+        if url.startswith("@"):
+            url = f"https://t.me/{url[1:]}"
+        # Handle typos containing telegram domains
+        elif "t.me" in url or "telegram.me" in url:
+            if url.startswith("ttps://"):
+                url = "h" + url
+            elif url.startswith("tps://"):
+                url = "ht" + url
+            elif url.startswith("ps://"):
+                url = "htt" + url
+            elif not (url.startswith("http://") or url.startswith("https://")):
+                url = f"https://{url}"
+        else:
+            # Fallback if no protocol and no t.me domain
+            if not (url.startswith("http://") or url.startswith("https://")):
+                url = f"https://t.me/{url}"
+        
         builder.button(text=f"📢 {chan.name}", url=url)
     
     builder.adjust(1)
