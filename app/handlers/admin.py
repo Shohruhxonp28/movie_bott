@@ -4,17 +4,20 @@ from aiogram.types import Message, CallbackQuery
 from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
 from app.config import ADMIN_IDS, STORAGE_CHANNEL_ID
-from app.states import AdminState, AddMovieState
+from app.states import AdminState, AddMovieState, AddSeriesState
 from app.database import (
     get_statistics, get_setting, set_setting, get_required_channels,
     add_required_channel, delete_required_channel, add_movie,
     get_all_movies, get_movie_count, get_movie_by_code, rename_movie,
-    replace_movie_file, delete_movie, update_vip_until
+    replace_movie_file, delete_movie, update_vip_until,
+    add_series, add_series_episode, get_all_series, get_series_count,
+    get_series_by_code, rename_series, delete_series
 )
 from app.keyboards import (
     get_admin_panel, get_admin_channels_keyboard, get_admin_movies_keyboard,
     get_movie_detail_keyboard, get_broadcast_confirm_keyboard,
-    get_receipt_approval_keyboard
+    get_receipt_approval_keyboard, get_series_type_keyboard,
+    get_admin_series_keyboard, get_series_detail_keyboard
 )
 
 logger = logging.getLogger(__name__)
@@ -516,3 +519,253 @@ async def admin_grant_manual_vip(callback: CallbackQuery, bot: Bot):
     else:
         await callback.message.edit_text("❌ Foydalanuvchi topilmadi. U kamida bir marta botni start qilgan bo'lishi kerak.")
     await callback.answer()
+
+# --- ADD SERIES FLOW (ADMIN) ---
+@admin_router.callback_query(F.data == "admin_add_series")
+async def admin_add_series_start(callback: CallbackQuery, state: FSMContext):
+    if not is_admin_callback(callback):
+        return
+    await state.set_state(AddSeriesState.waiting_for_title)
+    await callback.message.edit_text("📺 Iltimos, serial nomini kiriting:")
+    await callback.answer()
+
+@admin_router.message(AddSeriesState.waiting_for_title)
+async def admin_add_series_title(message: Message, state: FSMContext):
+    if not is_admin(message):
+        return
+    title = message.text.strip()
+    await state.update_data(series_title=title)
+    await state.set_state(AddSeriesState.waiting_for_type)
+    await message.answer(
+        "Ushbu serial qanday taqdim etiladi?\n\n"
+        "1. 🔗 Kanal havolasi orqali\n"
+        "2. 📁 Qismlarni yuklash orqali",
+        reply_markup=get_series_type_keyboard()
+    )
+
+@admin_router.callback_query(F.data == "series_type_link")
+async def admin_series_type_link(callback: CallbackQuery, state: FSMContext):
+    if not is_admin_callback(callback):
+        return
+    await state.set_state(AddSeriesState.waiting_for_link)
+    await callback.message.edit_text("🔗 Kanal havolasini kiriting (masalan, https://t.me/kanal):")
+    await callback.answer()
+
+@admin_router.message(AddSeriesState.waiting_for_link)
+async def admin_save_series_link(message: Message, state: FSMContext):
+    if not is_admin(message):
+        return
+    link = message.text.strip()
+    data = await state.get_data()
+    title = data.get("series_title")
+    
+    series = await add_series(title=title, channel_link=link)
+    await state.clear()
+    await message.answer(
+        f"✅ **Serial muvaffaqiyatli qo'shildi!**\n\n"
+        f"📺 Nomi: {series.title}\n"
+        f"🆔 Kodi: `{series.series_code}`",
+        reply_markup=get_admin_panel()
+    )
+
+@admin_router.callback_query(F.data == "series_type_upload")
+async def admin_series_type_upload(callback: CallbackQuery, state: FSMContext):
+    if not is_admin_callback(callback):
+        return
+    await state.set_state(AddSeriesState.waiting_for_episodes_count)
+    await callback.message.edit_text("Nechta qismdan iborat? (masalan, 10):")
+    await callback.answer()
+
+@admin_router.message(AddSeriesState.waiting_for_episodes_count)
+async def admin_save_series_episodes_count(message: Message, state: FSMContext):
+    if not is_admin(message):
+        return
+    count_str = message.text.strip()
+    if not count_str.isdigit():
+        await message.answer("❌ Noto'g'ri qiymat. Iltimos, faqat raqam kiriting:")
+        return
+    
+    count = int(count_str)
+    await state.update_data(
+        episodes_count=count,
+        current_episode_index=1,
+        episodes_list=[]
+    )
+    await state.set_state(AddSeriesState.waiting_for_file)
+    await message.answer("📁 1-qism faylini yuboring:")
+
+@admin_router.message(AddSeriesState.waiting_for_file)
+async def admin_save_series_file(message: Message, state: FSMContext, bot: Bot):
+    if not is_admin(message):
+        return
+        
+    file_id = None
+    if message.video:
+        file_id = message.video.file_id
+    elif message.document:
+        file_id = message.document.file_id
+    elif message.audio:
+        file_id = message.audio.file_id
+    elif message.animation:
+        file_id = message.animation.file_id
+    else:
+        await message.answer("❌ Iltimos, yaroqli fayl (video, hujjat, audio, animatsiya) yuboring.")
+        return
+        
+    data = await state.get_data()
+    title = data.get("series_title")
+    episodes_count = data.get("episodes_count")
+    current_index = data.get("current_episode_index")
+    ep_list = data.get("episodes_list", [])
+    
+    try:
+        # Forward to storage channel
+        forwarded = await bot.forward_message(
+            chat_id=STORAGE_CHANNEL_ID,
+            from_chat_id=message.chat.id,
+            message_id=message.message_id
+        )
+        
+        # Save episode info temporarily in FSM
+        ep_list.append({
+            "episode_number": current_index,
+            "channel_id": STORAGE_CHANNEL_ID,
+            "message_id": forwarded.message_id,
+            "file_id": file_id
+        })
+        
+        if current_index < episodes_count:
+            next_index = current_index + 1
+            await state.update_data(
+                current_episode_index=next_index,
+                episodes_list=ep_list
+            )
+            await message.answer(f"📁 {next_index}-qism faylini yuboring:")
+        else:
+            # All episodes received. Save to DB.
+            series = await add_series(title=title, episodes_count=episodes_count)
+            for ep in ep_list:
+                await add_series_episode(
+                    series_code=series.series_code,
+                    episode_number=ep["episode_number"],
+                    channel_id=ep["channel_id"],
+                    message_id=ep["message_id"],
+                    file_id=ep["file_id"]
+                )
+            
+            await state.clear()
+            await message.answer(
+                f"✅ **Serial va barcha {episodes_count} qismlari muvaffaqiyatli qo'shildi!**\n\n"
+                f"📺 Nomi: {series.title}\n"
+                f"🆔 Kodi: `{series.series_code}`",
+                reply_markup=get_admin_panel()
+            )
+    except Exception as e:
+        logger.error(f"Error saving series episode: {e}")
+        await message.answer(f"❌ Faylni saqlashda xatolik: {e}")
+
+# --- SERIES LIST & DETAIL MANAGEMENT (ADMIN) ---
+@admin_router.callback_query(F.data.startswith("admin_series_page_"))
+async def admin_list_series(callback: CallbackQuery):
+    if not is_admin_callback(callback):
+        return
+    page = int(callback.data.replace("admin_series_page_", ""))
+    limit = 10
+    offset = (page - 1) * limit
+    
+    series_list = await get_all_series(offset=offset, limit=limit)
+    total_count = await get_series_count()
+    total_pages = (total_count + limit - 1) // limit
+    
+    await callback.message.edit_text(
+        f"📺 **Seriallar ro'yxati (Admin) - Sahifa {page}/{max(1, total_pages)}**\n"
+        "Bosib boshqarishingiz mumkin:",
+        reply_markup=get_admin_series_keyboard(series_list, page, total_pages)
+    )
+    await callback.answer()
+
+@admin_router.callback_query(F.data.startswith("admin_series_detail_"))
+async def admin_series_detail(callback: CallbackQuery):
+    if not is_admin_callback(callback):
+        return
+    code = int(callback.data.replace("admin_series_detail_", ""))
+    series = await get_series_by_code(code)
+    if not series:
+        await callback.answer("❌ Serial topilmadi.", show_alert=True)
+        return
+        
+    info = f"📺 **Serial tafsilotlari**\n\n" \
+           f"🆔 Kodi: `{series.series_code}`\n" \
+           f"📌 Nomi: {series.title}\n" \
+           f"👁️ Qidiruvlar soni: {series.search_count}\n"
+    
+    if series.channel_link:
+        info += f"🔗 Havola: {series.channel_link}"
+    else:
+        info += f"📁 Qismlar soni: {series.episodes_count}"
+        
+    await callback.message.edit_text(info, reply_markup=get_series_detail_keyboard(code))
+    await callback.answer()
+
+@admin_router.callback_query(F.data.startswith("admin_view_series_"))
+async def admin_view_series(callback: CallbackQuery, bot: Bot):
+    if not is_admin_callback(callback):
+        return
+    code = int(callback.data.replace("admin_view_series_", ""))
+    series = await get_series_by_code(code)
+    if not series:
+        await callback.answer("❌ Serial topilmadi.", show_alert=True)
+        return
+        
+    if series.channel_link:
+        await callback.message.answer(f"🔗 Serial havolasi: {series.channel_link}")
+        await callback.answer()
+    else:
+        await callback.answer("Qismlar yuborilmoqda...")
+        for ep in series.episodes:
+            try:
+                await bot.copy_message(
+                    chat_id=callback.message.chat.id,
+                    from_chat_id=ep.channel_id,
+                    message_id=ep.message_id,
+                    caption=f"📺 {series.title} | {ep.episode_number}-qism"
+                )
+            except Exception as e:
+                logger.error(f"Error copying series episode {ep.id}: {e}")
+
+@admin_router.callback_query(F.data.startswith("admin_rename_series_"))
+async def admin_rename_series_prompt(callback: CallbackQuery, state: FSMContext):
+    if not is_admin_callback(callback):
+        return
+    code = int(callback.data.replace("admin_rename_series_", ""))
+    await state.set_state(AddSeriesState.waiting_for_rename)
+    await state.update_data(edit_series_code=code)
+    await callback.message.edit_text("✏️ Iltimos, serial uchun yangi nom yuboring:")
+    await callback.answer()
+
+@admin_router.message(AddSeriesState.waiting_for_rename)
+async def admin_rename_series_save(message: Message, state: FSMContext):
+    if not is_admin(message):
+        return
+    data = await state.get_data()
+    code = data.get("edit_series_code")
+    new_title = message.text.strip()
+    
+    success = await rename_series(code, new_title)
+    await state.clear()
+    if success:
+        await message.answer(f"✅ Serial nomi muvaffaqiyatli '{new_title}'ga o'zgartirildi!", reply_markup=get_admin_panel())
+    else:
+        await message.answer("❌ Serial nomini o'zgartirib bo'lmadi.", reply_markup=get_admin_panel())
+
+@admin_router.callback_query(F.data.startswith("admin_delete_series_"))
+async def admin_delete_series_action(callback: CallbackQuery):
+    if not is_admin_callback(callback):
+        return
+    code = int(callback.data.replace("admin_delete_series_", ""))
+    success = await delete_series(code)
+    if success:
+        await callback.answer("✅ Serial o'chirildi.")
+        await callback.message.edit_text("✅ Serial muvaffaqiyatli o'chirildi.", reply_markup=get_admin_panel())
+    else:
+        await callback.answer("❌ Serialni o'chirishda xatolik.", show_alert=True)

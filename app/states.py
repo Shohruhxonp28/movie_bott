@@ -4,6 +4,14 @@ class AddMovieState(StatesGroup):
     waiting_for_title = State()
     waiting_for_file = State()
 
+class AddSeriesState(StatesGroup):
+    waiting_for_title = State()
+    waiting_for_type = State()
+    waiting_for_link = State()
+    waiting_for_episodes_count = State()
+    waiting_for_file = State()
+    waiting_for_rename = State()
+
 class VIPState(StatesGroup):
     waiting_for_receipt = State()
 

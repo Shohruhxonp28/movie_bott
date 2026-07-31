@@ -1,9 +1,9 @@
 import logging
-from typing import List, Optional
+from typing import List, Optional, Any
 from aiogram import Bot
 from aiogram.exceptions import TelegramAPIError
 from rapidfuzz import process, fuzz
-from app.models import Movie, RequiredChannel
+from app.models import Movie, RequiredChannel, Series
 from app.database import get_required_channels, get_user
 
 logger = logging.getLogger(__name__)
@@ -28,25 +28,26 @@ async def check_user_subscription(bot: Bot, user_id: int) -> bool:
                 return False
         except TelegramAPIError as e:
             logger.error(f"Error checking channel sub for channel {channel.channel_id} and user {user_id}: {e}")
-            # If the bot is not in the channel or cannot check, we might treat it as not subscribed
             return False
             
     return True
 
-def search_movies_fuzzy(query: str, movies: List[Movie], threshold: float = 60.0) -> List[Movie]:
+def search_items_fuzzy(query: str, items: List[Any], threshold: float = 60.0) -> List[Any]:
     """
-    Fuzzy search movies by title using RapidFuzz.
-    Returns list of Movie objects matching the query.
+    Fuzzy search items (Movies or Series) by title using RapidFuzz.
     """
-    if not movies:
+    if not items:
         return []
         
-    # Create mapping of lowercase titles to movie objects
-    # Note: RapidFuzz works best on strings.
-    title_to_movie = {movie.title.lower(): movie for movie in movies}
-    titles = list(title_to_movie.keys())
+    title_to_items = {}
+    for item in items:
+        title_lower = item.title.lower()
+        if title_lower not in title_to_items:
+            title_to_items[title_lower] = []
+        title_to_items[title_lower].append(item)
+        
+    titles = list(title_to_items.keys())
     
-    # Run rapidfuzz matching
     results = process.extract(
         query.lower(),
         titles,
@@ -55,9 +56,9 @@ def search_movies_fuzzy(query: str, movies: List[Movie], threshold: float = 60.0
         limit=10
     )
     
-    matched_movies = []
+    matched_items = []
     for match in results:
         matched_title = match[0]
-        matched_movies.append(title_to_movie[matched_title])
+        matched_items.extend(title_to_items[matched_title])
         
-    return matched_movies
+    return matched_items[:10]

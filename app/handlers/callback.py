@@ -4,11 +4,11 @@ from aiogram.types import CallbackQuery, Message
 from aiogram.fsm.context import FSMContext
 from app.database import (
     get_movie_by_code, get_all_movies, get_movie_count, get_setting,
-    get_or_create_user
+    get_or_create_user, get_series_by_code, increment_series_search_count
 )
 from app.keyboards import (
     get_movie_list_keyboard, get_receipt_approval_keyboard, get_vip_plans_keyboard,
-    get_main_keyboard
+    get_main_keyboard, get_join_channels_keyboard
 )
 from app.utils import check_user_subscription
 from app.states import VIPState
@@ -23,7 +23,7 @@ async def process_check_subscription(callback: CallbackQuery, state: FSMContext,
     is_subscribed = await check_user_subscription(bot, user_id)
     
     if is_subscribed:
-        # Check if they had a pending movie code they were trying to access
+        # Check if they had a pending code they were trying to access
         data = await state.get_data()
         pending_code = data.get("pending_movie_code")
         
@@ -31,14 +31,22 @@ async def process_check_subscription(callback: CallbackQuery, state: FSMContext,
         bot_username = bot_info.username
         
         if pending_code:
-            movie = await get_movie_by_code(pending_code)
-            if movie:
-                # Import here to avoid circular imports
-                from app.handlers.user import send_movie_to_user
-                await send_movie_to_user(bot, callback.message.chat.id, movie, bot_username)
-                await callback.message.delete()
-                await state.clear()
-                return
+            if pending_code >= 1000:
+                series = await get_series_by_code(pending_code)
+                if series:
+                    from app.handlers.user import send_series_to_user
+                    await send_series_to_user(bot, callback.message.chat.id, series, bot_username)
+                    await callback.message.delete()
+                    await state.clear()
+                    return
+            else:
+                movie = await get_movie_by_code(pending_code)
+                if movie:
+                    from app.handlers.user import send_movie_to_user
+                    await send_movie_to_user(bot, callback.message.chat.id, movie, bot_username)
+                    await callback.message.delete()
+                    await state.clear()
+                    return
                 
         await callback.message.edit_text(
             "🎉 A'zoligingiz tasdiqlandi! Botdan to'liq foydalanishingiz mumkin.",
@@ -104,7 +112,6 @@ async def process_vip_receipt(message: Message, state: FSMContext, bot: Bot):
         "Obunangiz faollashtirilishi bilanoq sizga xabar yuboriladi."
     )
     
-    # Forward receipt to admins
     for admin_id in ADMIN_IDS:
         try:
             caption = (
@@ -167,6 +174,86 @@ async def process_view_movie_user(callback: CallbackQuery, bot: Bot, state: FSMC
         await callback.answer()
     except Exception as e:
         await callback.answer(f"Kinoni yuborishda xatolik: {e}", show_alert=True)
+
+# --- USER SERIES CALLBACKS ---
+@callback_router.callback_query(F.data.startswith("view_series_user_"))
+async def process_view_series_user(callback: CallbackQuery, bot: Bot, state: FSMContext):
+    user_id = callback.from_user.id
+    is_subscribed = await check_user_subscription(bot, user_id)
+    
+    code = int(callback.data.replace("view_series_user_", ""))
+    
+    if not is_subscribed:
+        await state.update_data(pending_movie_code=code)
+        from app.database import get_required_channels
+        channels = await get_required_channels()
+        await callback.message.answer(
+            "⚠️ **Ruxsat berilmadi!**\n\n"
+            "Ushbu serialni ko'rish uchun avval homiy kanallarimizga a'zo bo'lishingiz kerak "
+            "yoki barcha cheklovlarni chetlab o'tish uchun VIP obuna sotib oling.",
+            reply_markup=get_join_channels_keyboard(channels)
+        )
+        await callback.answer()
+        return
+        
+    series = await get_series_by_code(code)
+    if not series:
+        await callback.answer("❌ Serial topilmadi.", show_alert=True)
+        return
+        
+    bot_info = await bot.get_me()
+    bot_username = bot_info.username
+    
+    from app.handlers.user import send_series_to_user
+    try:
+        await send_series_to_user(bot, callback.message.chat.id, series, bot_username)
+        await callback.answer()
+    except Exception as e:
+        await callback.answer(f"Serialni yuklashda xatolik: {e}", show_alert=True)
+
+@callback_router.callback_query(F.data.startswith("view_episode_"))
+async def process_view_episode(callback: CallbackQuery, bot: Bot):
+    user_id = callback.from_user.id
+    is_subscribed = await check_user_subscription(bot, user_id)
+    
+    if not is_subscribed:
+        await callback.answer("⚠️ Avval homiy kanallarga a'zo bo'ling!", show_alert=True)
+        return
+        
+    # Format: view_episode_{series_code}_{episode_number}
+    parts = callback.data.replace("view_episode_", "").split("_")
+    series_code = int(parts[0])
+    episode_number = int(parts[1])
+    
+    series = await get_series_by_code(series_code)
+    if not series:
+        await callback.answer("❌ Serial topilmadi.", show_alert=True)
+        return
+        
+    # Find specific episode
+    episode = None
+    for ep in series.episodes:
+        if ep.episode_number == episode_number:
+            episode = ep
+            break
+            
+    if not episode:
+        await callback.answer("❌ Ushbu qism topilmadi.", show_alert=True)
+        return
+        
+    await callback.answer(f"{episode_number}-qism yuborilmoqda...")
+    
+    try:
+        await increment_series_search_count(series_code)
+        await bot.copy_message(
+            chat_id=callback.message.chat.id,
+            from_chat_id=episode.channel_id,
+            message_id=episode.message_id,
+            caption=f"📺 {series.title} | {episode_number}-qism"
+        )
+    except Exception as e:
+        logger.error(f"Error copying episode: {e}")
+        await callback.message.answer(f"❌ Qismni yuborishda xatolik yuz berdi: {e}")
 
 @callback_router.callback_query(F.data.startswith("movie_page_"))
 async def process_movie_page(callback: CallbackQuery, bot: Bot, state: FSMContext):

@@ -1,7 +1,7 @@
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
 from typing import List
-from app.models import Movie, RequiredChannel
+from app.models import Movie, RequiredChannel, Series
 
 def get_main_keyboard() -> ReplyKeyboardMarkup:
     builder = ReplyKeyboardBuilder()
@@ -59,6 +59,12 @@ def get_share_keyboard(bot_username: str, movie_code: int) -> InlineKeyboardMark
     builder.button(text="📤 Ulashish", url=f"https://t.me/share/url?url={share_url}")
     return builder.as_markup()
 
+def get_share_series_keyboard(bot_username: str, series_code: int) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    share_url = f"https://t.me/{bot_username}?start=movie_{series_code}"
+    builder.button(text="📤 Ulashish", url=f"https://t.me/share/url?url={share_url}")
+    return builder.as_markup()
+
 def get_movie_list_keyboard(movies: List[Movie], page: int, total_pages: int) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     for movie in movies:
@@ -80,7 +86,11 @@ def get_admin_panel() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.row(
         InlineKeyboardButton(text="➕ Kino qo'shish", callback_data="admin_add_movie"),
-        InlineKeyboardButton(text="🎬 Kinolar", callback_data="admin_movies_page_1")
+        InlineKeyboardButton(text="➕ Serial qo'shish", callback_data="admin_add_series")
+    )
+    builder.row(
+        InlineKeyboardButton(text="🎬 Kinolar", callback_data="admin_movies_page_1"),
+        InlineKeyboardButton(text="📺 Seriallar", callback_data="admin_series_page_1")
     )
     builder.row(
         InlineKeyboardButton(text="⭐ VIP", callback_data="admin_vip_plans"),
@@ -169,4 +179,58 @@ def get_admin_manual_vip_plans_keyboard(user_id: int) -> InlineKeyboardMarkup:
         InlineKeyboardButton(text="12 Oylik", callback_data=f"admin_manual_vip_12_{user_id}")
     )
     builder.row(InlineKeyboardButton(text="🔙 Bekor qilish", callback_data="admin_vip_plans"))
+    return builder.as_markup()
+
+# --- NEW SERIES KEYBOARDS ---
+def get_series_type_keyboard() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        InlineKeyboardButton(text="🔗 Kanal havolasi orqali", callback_data="series_type_link"),
+        InlineKeyboardButton(text="📁 Qismlarni yuklash orqali", callback_data="series_type_upload")
+    )
+    builder.row(InlineKeyboardButton(text="🔙 Bekor qilish", callback_data="admin_back"))
+    return builder.as_markup()
+
+def get_admin_series_keyboard(series: List[Series], page: int, total_pages: int) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    for s in series:
+        builder.row(InlineKeyboardButton(text=f"📺 {s.title} [{s.series_code}]", callback_data=f"admin_series_detail_{s.series_code}"))
+    
+    nav_buttons = []
+    if page > 1:
+        nav_buttons.append(InlineKeyboardButton(text="⬅️ Oldingi", callback_data=f"admin_series_page_{page-1}"))
+    if page < total_pages:
+        nav_buttons.append(InlineKeyboardButton(text="Keyingi ➡️", callback_data=f"admin_series_page_{page+1}"))
+        
+    if nav_buttons:
+        builder.row(*nav_buttons)
+        
+    builder.row(InlineKeyboardButton(text="🔙 Orqaga", callback_data="admin_back"))
+    return builder.as_markup()
+
+def get_series_detail_keyboard(code: int) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        InlineKeyboardButton(text="👁️ Serialni ko'rish", callback_data=f"admin_view_series_{code}"),
+        InlineKeyboardButton(text="✏️ Nomini o'zgartirish", callback_data=f"admin_rename_series_{code}")
+    )
+    builder.row(
+        InlineKeyboardButton(text="🗑️ O'chirish", callback_data=f"admin_delete_series_{code}"),
+        InlineKeyboardButton(text="🔙 Ro'yxatga qaytish", callback_data="admin_series_page_1")
+    )
+    return builder.as_markup()
+
+def get_series_episodes_keyboard(series_code: int, episodes_count: int) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    for i in range(1, episodes_count + 1):
+        builder.button(text=f"{i}-qism", callback_data=f"view_episode_{series_code}_{i}")
+    builder.adjust(4)
+    return builder.as_markup()
+
+def get_series_link_keyboard(channel_link: str) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    url = channel_link.strip()
+    if not (url.startswith("http://") or url.startswith("https://")):
+        url = f"https://t.me/{url.replace('@', '')}"
+    builder.button(text="🍿 Serialni ko'rish (Kanal)", url=url)
     return builder.as_markup()

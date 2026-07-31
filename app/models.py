@@ -1,7 +1,7 @@
 import datetime
 from typing import Optional
-from sqlalchemy import BigInteger, String, Integer, DateTime, Boolean
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy import BigInteger, String, Integer, DateTime, Boolean, ForeignKey
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 class Base(DeclarativeBase):
     pass
@@ -24,12 +24,35 @@ class User(Base):
 class Movie(Base):
     __tablename__ = "movies"
 
-    movie_code: Mapped[int] = mapped_column(Integer, primary_key=True)  # Custom code
+    movie_code: Mapped[int] = mapped_column(Integer, primary_key=True)  # Custom code starting at 1
     title: Mapped[str] = mapped_column(String(500), index=True)
     channel_id: Mapped[int] = mapped_column(BigInteger)
     message_id: Mapped[int] = mapped_column(Integer)
     file_id: Mapped[str] = mapped_column(String(500))
     search_count: Mapped[int] = mapped_column(Integer, default=0)
+
+class Series(Base):
+    __tablename__ = "series"
+
+    series_code: Mapped[int] = mapped_column(Integer, primary_key=True)  # Custom code starting at 1000
+    title: Mapped[str] = mapped_column(String(500), index=True)
+    channel_link: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    episodes_count: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    search_count: Mapped[int] = mapped_column(Integer, default=0)
+
+    episodes = relationship("SeriesEpisode", back_populates="series", cascade="all, delete-orphan", lazy="selectin")
+
+class SeriesEpisode(Base):
+    __tablename__ = "series_episodes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    series_code: Mapped[int] = mapped_column(Integer, ForeignKey("series.series_code", ondelete="CASCADE"))
+    episode_number: Mapped[int] = mapped_column(Integer)
+    channel_id: Mapped[int] = mapped_column(BigInteger)
+    message_id: Mapped[int] = mapped_column(Integer)
+    file_id: Mapped[str] = mapped_column(String(500))
+
+    series = relationship("Series", back_populates="episodes")
 
 class RequiredChannel(Base):
     __tablename__ = "required_channels"
