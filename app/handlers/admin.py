@@ -573,27 +573,15 @@ async def admin_save_series_link(message: Message, state: FSMContext):
 async def admin_series_type_upload(callback: CallbackQuery, state: FSMContext):
     if not is_admin_callback(callback):
         return
-    await state.set_state(AddSeriesState.waiting_for_episodes_count)
-    await callback.message.edit_text("Nechta qismdan iborat? (masalan, 10):")
-    await callback.answer()
-
-@admin_router.message(AddSeriesState.waiting_for_episodes_count)
-async def admin_save_series_episodes_count(message: Message, state: FSMContext):
-    if not is_admin(message):
-        return
-    count_str = message.text.strip()
-    if not count_str.isdigit():
-        await message.answer("❌ Noto'g'ri qiymat. Iltimos, faqat raqam kiriting:")
-        return
-    
-    count = int(count_str)
-    await state.update_data(
-        episodes_count=count,
-        current_episode_index=1,
-        episodes_list=[]
-    )
+    from app.keyboards import get_finish_upload_keyboard
+    await state.update_data(episodes_list=[])
     await state.set_state(AddSeriesState.waiting_for_file)
-    await message.answer("📁 1-qism faylini yuboring:")
+    await callback.message.edit_text(
+        "📁 Iltimos, serial qismlarini yuboring (fayllarni birdaniga guruhlab yoki ketma-ket yuborishingiz mumkin).\n\n"
+        "Yuklashni tugatganingizdan so'ng, quyidagi **💾 Yakunlash** tugmasini bosing:",
+        reply_markup=get_finish_upload_keyboard()
+    )
+    await callback.answer()
 
 @admin_router.message(AddSeriesState.waiting_for_file)
 async def admin_save_series_file(message: Message, state: FSMContext, bot: Bot):
@@ -614,9 +602,6 @@ async def admin_save_series_file(message: Message, state: FSMContext, bot: Bot):
         return
         
     data = await state.get_data()
-    title = data.get("series_title")
-    episodes_count = data.get("episodes_count")
-    current_index = data.get("current_episode_index")
     ep_list = data.get("episodes_list", [])
     
     try:
@@ -627,43 +612,62 @@ async def admin_save_series_file(message: Message, state: FSMContext, bot: Bot):
             message_id=message.message_id
         )
         
-        # Save episode info temporarily in FSM
+        # Save episode details
         ep_list.append({
-            "episode_number": current_index,
             "channel_id": STORAGE_CHANNEL_ID,
             "message_id": forwarded.message_id,
             "file_id": file_id
         })
+        await state.update_data(episodes_list=ep_list)
         
-        if current_index < episodes_count:
-            next_index = current_index + 1
-            await state.update_data(
-                current_episode_index=next_index,
-                episodes_list=ep_list
-            )
-            await message.answer(f"📁 {next_index}-qism faylini yuboring:")
-        else:
-            # All episodes received. Save to DB.
-            series = await add_series(title=title, episodes_count=episodes_count)
-            for ep in ep_list:
-                await add_series_episode(
-                    series_code=series.series_code,
-                    episode_number=ep["episode_number"],
-                    channel_id=ep["channel_id"],
-                    message_id=ep["message_id"],
-                    file_id=ep["file_id"]
-                )
-            
-            await state.clear()
-            await message.answer(
-                f"✅ **Serial va barcha {episodes_count} qismlari muvaffaqiyatli qo'shildi!**\n\n"
-                f"📺 Nomi: {series.title}\n"
-                f"🆔 Kodi: `{series.series_code}`",
-                reply_markup=get_admin_panel()
-            )
+        from app.keyboards import get_finish_upload_keyboard
+        await message.answer(
+            f"✅ {len(ep_list)}-qism qabul qilindi.\n"
+            "Yana qismlar yuborishingiz mumkin yoki yuklashni yakunlash uchun **💾 Yakunlash** tugmasini bosing:",
+            reply_markup=get_finish_upload_keyboard()
+        )
     except Exception as e:
         logger.error(f"Error saving series episode: {e}")
         await message.answer(f"❌ Faylni saqlashda xatolik: {e}")
+
+@admin_router.callback_query(F.data == "series_finish_upload")
+async def admin_series_finish_upload(callback: CallbackQuery, state: FSMContext):
+    if not is_admin_callback(callback):
+        return
+    data = await state.get_data()
+    title = data.get("series_title")
+    ep_list = data.get("episodes_list", [])
+    
+    if not ep_list:
+        await callback.answer("⚠️ Iltimos, avval kamida 1 ta qism yuklang!", show_alert=True)
+        return
+        
+    try:
+        # Save Series in DB
+        episodes_count = len(ep_list)
+        series = await add_series(title=title, episodes_count=episodes_count)
+        
+        # Save SeriesEpisodes sequentially
+        for idx, ep in enumerate(ep_list, 1):
+            await add_series_episode(
+                series_code=series.series_code,
+                episode_number=idx,
+                channel_id=ep["channel_id"],
+                message_id=ep["message_id"],
+                file_id=ep["file_id"]
+            )
+            
+        await state.clear()
+        await callback.message.edit_text(
+            f"✅ **Serial va barcha {episodes_count} qismlari muvaffaqiyatli qo'shildi!**\n\n"
+            f"📺 Nomi: {series.title}\n"
+            f"🆔 Kodi: `{series.series_code}`",
+            reply_markup=get_admin_panel()
+        )
+    except Exception as e:
+        logger.error(f"Error finishing series upload: {e}")
+        await callback.message.answer(f"❌ Serialni saqlashda xatolik: {e}")
+    await callback.answer()
 
 # --- SERIES LIST & DETAIL MANAGEMENT (ADMIN) ---
 @admin_router.callback_query(F.data.startswith("admin_series_page_"))

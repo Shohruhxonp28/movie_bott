@@ -234,3 +234,9 @@ def get_series_link_keyboard(channel_link: str) -> InlineKeyboardMarkup:
         url = f"https://t.me/{url.replace('@', '')}"
     builder.button(text="🍿 Serialni ko'rish (Kanal)", url=url)
     return builder.as_markup()
+
+def get_finish_upload_keyboard() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.row(InlineKeyboardButton(text="💾 Yakunlash", callback_data="series_finish_upload"))
+    builder.row(InlineKeyboardButton(text="❌ Bekor qilish", callback_data="admin_back"))
+    return builder.as_markup()
