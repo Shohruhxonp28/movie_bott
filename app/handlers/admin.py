@@ -197,8 +197,9 @@ async def start_broadcast(callback: CallbackQuery, state: FSMContext, bot: Bot):
     await state.clear()
     await callback.message.answer(
         f"📢 **Reklama yuborish yakunlandi**\n\n"
-        f"✅ Muvaffaqiyatli: {success_count}\n"
-        f"❌ Muqobil/Xato: {fail_count}",
+        f"👥 Jami foydalanuvchilar: {len(user_ids)} ta\n"
+        f"✅ Muvaffaqiyatli yuborilganlar: {success_count} ta\n"
+        f"❌ Yuborilmaganlar (botni bloklaganlar): {fail_count} ta",
         reply_markup=get_admin_panel()
     )
 
