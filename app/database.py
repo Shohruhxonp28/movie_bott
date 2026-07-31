@@ -271,6 +271,14 @@ async def set_setting(key: str, value: str):
                 session.add(setting)
             await session.commit()
 
+async def get_active_vip_users() -> List[User]:
+    async with AsyncSessionLocal() as session:
+        now = datetime.datetime.utcnow()
+        result = await session.execute(
+            select(User).where(User.vip_until > now).order_by(User.vip_until.asc())
+        )
+        return list(result.scalars().all())
+
 # --- STATISTICS ---
 async def get_statistics() -> Dict[str, Any]:
     async with AsyncSessionLocal() as session:

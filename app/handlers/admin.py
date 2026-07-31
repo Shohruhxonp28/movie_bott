@@ -11,7 +11,7 @@ from app.database import (
     get_all_movies, get_movie_count, get_movie_by_code, rename_movie,
     replace_movie_file, delete_movie, update_vip_until,
     add_series, add_series_episode, get_all_series, get_series_count,
-    get_series_by_code, rename_series, delete_series
+    get_series_by_code, rename_series, delete_series, get_active_vip_users
 )
 from app.keyboards import (
     get_admin_panel, get_admin_channels_keyboard, get_admin_movies_keyboard,
@@ -61,28 +61,7 @@ async def show_stats(callback: CallbackQuery):
     await callback.message.edit_text(text, reply_markup=get_admin_panel())
     await callback.answer()
 
-# --- BANK CARD ---
-@admin_router.callback_query(F.data == "admin_bank_card")
-async def view_bank_card(callback: CallbackQuery, state: FSMContext):
-    if not is_admin_callback(callback):
-        return
-    card = await get_setting("bank_card", "Sozlanmagan")
-    await state.set_state(AdminState.waiting_for_card)
-    await callback.message.edit_text(
-        f"💳 **Hozirgi bank kartasi:** `{card}`\n\n"
-        "O'zgartirish uchun yangi bank kartasi raqamini/tafsilotlarini yuboring. Bekor qilish uchun Orqaga bosing.",
-        reply_markup=get_admin_panel()
-    )
-    await callback.answer()
 
-@admin_router.message(AdminState.waiting_for_card)
-async def update_bank_card(message: Message, state: FSMContext):
-    if not is_admin(message):
-        return
-    card_details = message.text.strip()
-    await set_setting("bank_card", card_details)
-    await state.clear()
-    await message.answer(f"✅ Bank kartasi ma'lumotlari yangilandi:\n`{card_details}`", reply_markup=get_admin_panel())
 
 # --- REQUIRED CHANNELS ---
 @admin_router.callback_query(F.data == "admin_channels")
@@ -464,8 +443,25 @@ async def admin_vip_menu(callback: CallbackQuery):
     if not is_admin_callback(callback):
         return
     from app.keyboards import get_admin_vip_keyboard
+    vip_users = await get_active_vip_users()
+    
+    text = "⭐ **VIP bo'limi (Admin)**\n\n"
+    text += "👥 **Hozirgi VIP obunaga ega foydalanuvchilar:**\n"
+    if not vip_users:
+        text += "Hozircha VIP foydalanuvchilar yo'q.\n"
+    else:
+        for idx, u in enumerate(vip_users, 1):
+            username_str = f" (@{u.username})" if u.username else ""
+            expiry_str = u.vip_until.strftime("%Y-%m-%d %H:%M")
+            text += f"{idx}. {u.full_name}{username_str} [ID: `{u.id}`] - {expiry_str} gacha\n"
+            
+    text += "\n⭐ **VIP obuna tariflari (Foydalanuvchilar uchun):**\n"
+    text += "- 1 Oylik\n"
+    text += "- 3 Oylik\n"
+    text += "- 12 Oylik\n"
+    
     await callback.message.edit_text(
-        "⭐ **VIP Boshqaruvi**\n\nBu bo'lim orqali foydalanuvchilarga qo'lda VIP berishingiz mumkin.",
+        text,
         reply_markup=get_admin_vip_keyboard()
     )
     await callback.answer()

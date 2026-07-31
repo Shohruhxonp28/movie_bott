@@ -98,9 +98,6 @@ def get_admin_panel() -> InlineKeyboardMarkup:
     )
     builder.row(
         InlineKeyboardButton(text="📺 Majburiy kanallar", callback_data="admin_channels"),
-        InlineKeyboardButton(text="💳 Bank kartasi", callback_data="admin_bank_card")
-    )
-    builder.row(
         InlineKeyboardButton(text="📊 Statistika", callback_data="admin_stats")
     )
     return builder.as_markup()
