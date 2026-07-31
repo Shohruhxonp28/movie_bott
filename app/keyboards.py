@@ -138,3 +138,21 @@ def get_broadcast_confirm_keyboard() -> InlineKeyboardMarkup:
         InlineKeyboardButton(text="❌ Bekor qilish", callback_data="admin_back")
     )
     return builder.as_markup()
+
+def get_admin_vip_keyboard() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        InlineKeyboardButton(text="➕ VIP qo'shish (Manual)", callback_data="admin_add_vip"),
+        InlineKeyboardButton(text="🔙 Orqaga", callback_data="admin_back")
+    )
+    return builder.as_markup()
+
+def get_admin_manual_vip_plans_keyboard(user_id: int) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        InlineKeyboardButton(text="1 Oylik", callback_data=f"admin_manual_vip_1_{user_id}"),
+        InlineKeyboardButton(text="3 Oylik", callback_data=f"admin_manual_vip_3_{user_id}"),
+        InlineKeyboardButton(text="12 Oylik", callback_data=f"admin_manual_vip_12_{user_id}")
+    )
+    builder.row(InlineKeyboardButton(text="🔙 Bekor qilish", callback_data="admin_vip_plans"))
+    return builder.as_markup()

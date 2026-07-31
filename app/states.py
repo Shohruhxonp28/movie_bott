@@ -13,3 +13,4 @@ class AdminState(StatesGroup):
     waiting_for_add_channel = State()
     waiting_for_rename_movie = State()
     waiting_for_replace_movie_file = State()
+    waiting_for_manual_vip_id = State()

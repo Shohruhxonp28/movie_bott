@@ -453,3 +453,66 @@ async def reject_vip(callback: CallbackQuery, bot: Bot):
         pass
     await callback.message.edit_text(f"❌ Foydalanuvchi {user_id} uchun VIP so'rovi rad etildi.")
     await callback.answer()
+
+# --- MANUAL VIP MANAGEMENT (ADMIN) ---
+@admin_router.callback_query(F.data == "admin_vip_plans")
+async def admin_vip_menu(callback: CallbackQuery):
+    if not is_admin_callback(callback):
+        return
+    from app.keyboards import get_admin_vip_keyboard
+    await callback.message.edit_text(
+        "⭐ **VIP Boshqaruvi**\n\nBu bo'lim orqali foydalanuvchilarga qo'lda VIP berishingiz mumkin.",
+        reply_markup=get_admin_vip_keyboard()
+    )
+    await callback.answer()
+
+@admin_router.callback_query(F.data == "admin_add_vip")
+async def admin_add_vip_prompt(callback: CallbackQuery, state: FSMContext):
+    if not is_admin_callback(callback):
+        return
+    await state.set_state(AdminState.waiting_for_manual_vip_id)
+    await callback.message.edit_text("👤 Iltimos, VIP bermoqchi bo'lgan foydalanuvchining ID raqamini (User ID) yuboring:")
+    await callback.answer()
+
+@admin_router.message(AdminState.waiting_for_manual_vip_id)
+async def admin_save_manual_vip_id(message: Message, state: FSMContext):
+    if not is_admin(message):
+        return
+    user_id_str = message.text.strip()
+    if not user_id_str.isdigit():
+        await message.answer("❌ Noto'g'ri ID. User ID faqat raqamlardan iborat bo'lishi kerak. Qayta yuboring:")
+        return
+    
+    user_id = int(user_id_str)
+    from app.keyboards import get_admin_manual_vip_plans_keyboard
+    await state.clear()
+    await message.answer(
+        f"👤 Tanlangan foydalanuvchi ID: `{user_id}`\n\nUshbu foydalanuvchiga qancha muddatga VIP obuna bermoqchisiz?",
+        reply_markup=get_admin_manual_vip_plans_keyboard(user_id)
+    )
+
+@admin_router.callback_query(F.data.startswith("admin_manual_vip_"))
+async def admin_grant_manual_vip(callback: CallbackQuery, bot: Bot):
+    if not is_admin_callback(callback):
+        return
+    parts = callback.data.replace("admin_manual_vip_", "").split("_")
+    months = int(parts[0])
+    user_id = int(parts[1])
+    
+    new_expiry = await update_vip_until(user_id, months)
+    
+    if new_expiry:
+        try:
+            await bot.send_message(
+                chat_id=user_id,
+                text=f"🎉 **VIP Obunangiz faollashtirildi!**\n\nAdministrator sizga qo'lda {months} oylik VIP obuna taqdim etdi. Muddat: {new_expiry.strftime('%Y-%m-%d %H:%M:%S')} UTC gacha."
+            )
+        except Exception:
+            pass
+        await callback.message.edit_text(
+            f"✅ Foydalanuvchi (`{user_id}`) uchun {months} oylik VIP muvaffaqiyatli faollashtirildi!\n"
+            f"Muddat: {new_expiry.strftime('%Y-%m-%d')}"
+        )
+    else:
+        await callback.message.edit_text("❌ Foydalanuvchi topilmadi. U kamida bir marta botni start qilgan bo'lishi kerak.")
+    await callback.answer()
