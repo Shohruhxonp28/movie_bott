@@ -33,7 +33,7 @@ async def process_check_subscription(callback: CallbackQuery, state: FSMContext,
         if pending_code:
             movie = await get_movie_by_code(pending_code)
             if movie:
-                # Import here to avoid circular imports or reuse user's helper
+                # Import here to avoid circular imports
                 from app.handlers.user import send_movie_to_user
                 await send_movie_to_user(bot, callback.message.chat.id, movie, bot_username)
                 await callback.message.delete()
@@ -41,26 +41,26 @@ async def process_check_subscription(callback: CallbackQuery, state: FSMContext,
                 return
                 
         await callback.message.edit_text(
-            "🎉 Thank you for subscribing! You now have full access to the bot.",
+            "🎉 A'zoligingiz tasdiqlandi! Botdan to'liq foydalanishingiz mumkin.",
             reply_markup=None
         )
-        await callback.message.answer("Choose an option from the menu:", reply_markup=get_main_keyboard())
+        await callback.message.answer("Menyudan bo'limni tanlang:", reply_markup=get_main_keyboard())
         await state.clear()
     else:
         await callback.answer(
-            "⚠️ You have not subscribed to all required channels yet. Please subscribe and try again.",
+            "⚠️ Siz hali barcha majburiy kanallarga a'zo bo'lmadingiz. Iltimos, a'zo bo'ling va qayta urinib ko'ring.",
             show_alert=True
         )
 
 @callback_router.callback_query(F.data == "buy_vip")
 async def process_buy_vip(callback: CallbackQuery):
-    card = await get_setting("bank_card", "Not configured")
+    card = await get_setting("bank_card", "Sozlanmagan")
     text = (
-        "⭐ **VIP Subscription**\n\n"
-        "VIP users bypass all sponsor channel subscription requirements!\n\n"
-        "💳 **Payment details (Bank Card):**\n"
+        "⭐ **VIP Obuna**\n\n"
+        "VIP foydalanuvchilar homiy kanallarga a'zo bo'lishlari shart emas!\n\n"
+        "💳 **To'lov ma'lumotlari (Bank Kartasi):**\n"
         f"`{card}`\n\n"
-        "Select a subscription plan below to get started:"
+        "Boshlash uchun quyidagi VIP obuna rejalaridan birini tanlang:"
     )
     await callback.message.edit_text(text, reply_markup=get_vip_plans_keyboard())
     await callback.answer()
@@ -71,13 +71,13 @@ async def process_vip_plan_selection(callback: CallbackQuery, state: FSMContext)
     await state.update_data(selected_vip_months=months)
     await state.set_state(VIPState.waiting_for_receipt)
     
-    card = await get_setting("bank_card", "Not configured")
+    card = await get_setting("bank_card", "Sozlanmagan")
     text = (
-        f"💳 **Plan: {months} Month(s)**\n\n"
-        f"Please send the payment of the subscription to our bank card:\n"
+        f"💳 **Reja: {months} Oylik**\n\n"
+        f"Iltimos, VIP obuna to'lovini quyidagi bank kartamizga o'tkazing:\n"
         f"`{card}`\n\n"
-        "After transferring the money, **upload the payment receipt** (as a photo or document) here. "
-        "Admins will verify and approve your subscription shortly."
+        "To'lovni amalga oshirgach, **to'lov chekini** (rasm yoki hujjat shaklida) bu yerga yuboring. "
+        "Administratorlar to'lovni tez orada tekshirib, VIP obunangizni faollashtirib berishadi."
     )
     await callback.message.edit_text(text)
     await callback.answer()
@@ -87,7 +87,7 @@ async def process_vip_back(callback: CallbackQuery, state: FSMContext):
     await state.clear()
     await callback.message.delete()
     await callback.message.answer(
-        "Choose an option from the menu:",
+        "Menyudan bo'limni tanlang:",
         reply_markup=get_main_keyboard()
     )
     await callback.answer()
@@ -98,22 +98,20 @@ async def process_vip_receipt(message: Message, state: FSMContext, bot: Bot):
     data = await state.get_data()
     months = data.get("selected_vip_months", 1)
     
-    # Notify user
     await message.answer(
-        "⏳ **Receipt Received!**\n\n"
-        "Your payment receipt has been sent to the administrators for verification. "
-        "You will be notified once it is approved."
+        "⏳ **To'lov cheki qabul qilindi!**\n\n"
+        "To'lov chekingiz tekshirish uchun administratorlarga yuborildi. "
+        "Obunangiz faollashtirilishi bilanoq sizga xabar yuboriladi."
     )
     
     # Forward receipt to admins
     for admin_id in ADMIN_IDS:
         try:
-            # Send message to admin containing receipt and approval inline buttons
             caption = (
-                f"💳 **New VIP Subscription Request**\n\n"
-                f"👤 User: {message.from_user.full_name} (ID: `{message.from_user.id}`)\n"
-                f"🏷️ Username: @{message.from_user.username or 'none'}\n"
-                f"📅 Plan: {months} Month(s)"
+                f"💳 **Yangi VIP Obuna So'rovi**\n\n"
+                f"👤 Foydalanuvchi: {message.from_user.full_name} (ID: `{message.from_user.id}`)\n"
+                f"🏷️ Username: @{message.from_user.username or 'yoq'}\n"
+                f"📅 Reja: {months} Oylik"
             )
             
             if message.photo:
@@ -143,14 +141,13 @@ async def process_view_movie_user(callback: CallbackQuery, bot: Bot, state: FSMC
     code = int(callback.data.replace("view_movie_user_", ""))
     
     if not is_subscribed:
-        # Save movie request to state, then show sub prompt
         await state.update_data(pending_movie_code=code)
         from app.database import get_required_channels
         channels = await get_required_channels()
         await callback.message.answer(
-            "⚠️ **Access Denied!**\n\n"
-            "To view this movie, you must subscribe to our sponsor channels first, "
-            "or buy a VIP subscription to bypass all restrictions.",
+            "⚠️ **Ruxsat berilmadi!**\n\n"
+            "Ushbu kinoni ko'rish uchun avval homiy kanallarimizga a'zo bo'lishingiz kerak "
+            "yoki barcha cheklovlarni chetlab o'tish uchun VIP obuna sotib oling.",
             reply_markup=get_join_channels_keyboard(channels)
         )
         await callback.answer()
@@ -158,7 +155,7 @@ async def process_view_movie_user(callback: CallbackQuery, bot: Bot, state: FSMC
         
     movie = await get_movie_by_code(code)
     if not movie:
-        await callback.answer("❌ Movie not found.", show_alert=True)
+        await callback.answer("❌ Kino topilmadi.", show_alert=True)
         return
         
     bot_info = await bot.get_me()
@@ -169,7 +166,7 @@ async def process_view_movie_user(callback: CallbackQuery, bot: Bot, state: FSMC
         await send_movie_to_user(bot, callback.message.chat.id, movie, bot_username)
         await callback.answer()
     except Exception as e:
-        await callback.answer(f"Error sending movie: {e}", show_alert=True)
+        await callback.answer(f"Kinoni yuborishda xatolik: {e}", show_alert=True)
 
 @callback_router.callback_query(F.data.startswith("movie_page_"))
 async def process_movie_page(callback: CallbackQuery, bot: Bot, state: FSMContext):
@@ -180,8 +177,8 @@ async def process_movie_page(callback: CallbackQuery, bot: Bot, state: FSMContex
         from app.database import get_required_channels
         channels = await get_required_channels()
         await callback.message.answer(
-            "⚠️ **Access Denied!**\n\n"
-            "To browse movies, you must subscribe to our sponsor channels first.",
+            "⚠️ **Ruxsat berilmadi!**\n\n"
+            "Kinolar ro'yxatini ko'rish uchun avval homiy kanallarimizga a'zo bo'lishingiz kerak.",
             reply_markup=get_join_channels_keyboard(channels)
         )
         await callback.answer()
@@ -196,7 +193,7 @@ async def process_movie_page(callback: CallbackQuery, bot: Bot, state: FSMContex
     total_pages = (total_count + limit - 1) // limit
     
     await callback.message.edit_text(
-        "🎬 **Movie Catalog**\n\nChoose a movie from the list:",
+        "🎬 **Kinolar Katalogi**\n\nRo'yxatdan kinoni tanlang:",
         reply_markup=get_movie_list_keyboard(movies, page, total_pages)
     )
     await callback.answer()

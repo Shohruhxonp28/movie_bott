@@ -19,8 +19,8 @@ user_router = Router()
 async def send_movie_to_user(bot: Bot, chat_id: int, movie, bot_username: str):
     """Utility to send movie to user using copyMessage and increment search counter."""
     caption = (
-        f"🎬 Movie: {movie.title}\n\n"
-        f"🆔 Code: {movie.movie_code}"
+        f"🎬 Kino: {movie.title}\n\n"
+        f"🆔 Kodi: {movie.movie_code}"
     )
     # Increment search count
     await increment_search_count(movie.movie_code)
@@ -51,9 +51,9 @@ async def check_and_prompt_subscription(message: Message, bot: Bot, state: FSMCo
     channels = await get_required_channels()
     
     await message.answer(
-        "⚠️ **Access Denied!**\n\n"
-        "To use this bot, you must subscribe to our sponsor channels first, "
-        "or buy a VIP subscription to bypass all restrictions.",
+        "⚠️ **Ruxsat berilmadi!**\n\n"
+        "Botdan foydalanish uchun homiy kanallarimizga a'zo bo'lishingiz kerak "
+        "yoki barcha cheklovlarni chetlab o'tish uchun VIP obuna sotib oling.",
         reply_markup=get_join_channels_keyboard(channels)
     )
     return False
@@ -86,22 +86,22 @@ async def cmd_start(message: Message, command: CommandObject, state: FSMContext,
             if movie:
                 await send_movie_to_user(bot, message.chat.id, movie, bot_username)
             else:
-                await message.answer("Movie not found.")
+                await message.answer("Kino topilmadi.")
         return
         
     # Normal start flow
     is_subbed = await check_user_subscription(bot, message.from_user.id)
     if is_subbed:
         await message.answer(
-            f"👋 Hello {message.from_user.full_name}!\n"
-            "Welcome to the Movie Bot. You can send a movie code or search by title.",
+            f"👋 Salom {message.from_user.full_name}!\n"
+            "Kinobotga xush kelibsiz. Kino kodini yuboring yoki nomi bo'yicha qidiring.",
             reply_markup=get_main_keyboard()
         )
     else:
         await check_and_prompt_subscription(message, bot, state)
 
 # --- REPLY KEYBOARD ACTIONS ---
-@user_router.message(F.text == "🎬 Movies")
+@user_router.message(F.text == "🎬 Kinolar")
 async def show_movies_menu(message: Message, bot: Bot, state: FSMContext):
     is_subbed = await check_and_prompt_subscription(message, bot, state)
     if not is_subbed:
@@ -113,11 +113,11 @@ async def show_movies_menu(message: Message, bot: Bot, state: FSMContext):
     total_pages = (total_count + limit - 1) // limit
     
     if not movies:
-        await message.answer("No movies available at the moment.")
+        await message.answer("Hozircha kinolar mavjud emas.")
         return
         
     await message.answer(
-        "🎬 **Movie Catalog**\n\nChoose a movie from the list:",
+        "🎬 **Kinolar Katalogi**\n\nRo'yxatdan kinoni tanlang:",
         reply_markup=get_movie_list_keyboard(movies, 1, total_pages)
     )
 
@@ -132,30 +132,30 @@ async def show_vip_menu(message: Message, bot: Bot, state: FSMContext):
     
     if user.is_vip:
         await message.answer(
-            f"⭐ **You are a VIP User!**\n\n"
-            f"Subscription expires on: {user.vip_until.strftime('%Y-%m-%d %H:%M:%S')} UTC\n"
-            "You have complete access to the bot without any channel requirements."
+            f"⭐ **Siz VIP foydalanuvchisiz!**\n\n"
+            f"VIP obuna muddati: {user.vip_until.strftime('%Y-%m-%d %H:%M:%S')} UTC gacha\n"
+            "Siz homiy kanallarga a'zo bo'lmasdan botdan to'liq foydalana olasiz."
         )
         return
         
-    card = await get_setting("bank_card", "Not configured")
+    card = await get_setting("bank_card", "Sozlanmagan")
     text = (
-        "⭐ **VIP Subscription**\n\n"
-        "VIP users bypass all sponsor channel subscription requirements!\n\n"
-        "💳 **Payment details (Bank Card):**\n"
+        "⭐ **VIP Obuna**\n\n"
+        "VIP foydalanuvchilar homiy kanallarga a'zo bo'lishlari shart emas!\n\n"
+        "💳 **To'lov ma'lumotlari (Bank Kartasi):**\n"
         f"`{card}`\n\n"
-        "Select a subscription plan below to get started:"
+        "Boshlash uchun quyidagi VIP obuna rejalaridan birini tanlang:"
     )
     await message.answer(text, reply_markup=get_vip_plans_keyboard())
 
-@user_router.message(F.text == "ℹ️ Help")
+@user_router.message(F.text == "ℹ️ Yordam")
 async def show_help_menu(message: Message):
     text = (
-        "ℹ️ **How to Use the Movie Bot**\n\n"
-        "1. **By Code**: Simply send the movie code (e.g., `125`) and the bot will send the movie file instantly.\n"
-        "2. **By Title**: Send a spelling-tolerant movie name (e.g., `Avatar` or `Awater`). The bot will find the closest matches.\n"
-        "3. **VIP Access**: Buy a VIP subscription to bypass all required sponsor channels.\n"
-        "4. **Catalog**: Click on '🎬 Movies' to browse all movies page by page."
+        "ℹ️ **Botdan foydalanish bo'yicha yo'riqnoma**\n\n"
+        "1. **Kod orqali**: Shunchaki kino kodini yuboring (masalan, `125`) va bot kinoni darhol yuboradi.\n"
+        "2. **Nomi orqali**: Kino nomini xatolar bilan bo'lsa ham yuboring (masalan, `Avatar` yoki `Awater`). Bot eng yaqin mos keladigan kinolarni topadi.\n"
+        "3. **VIP Kirish**: Homiy kanallarga a'zo bo'lmaslik uchun VIP obunani sotib oling.\n"
+        "4. **Katalog**: Barcha kinolarni sahifalab ko'rish uchun '🎬 Kinolar' bo'limiga bosing."
     )
     await message.answer(text, reply_markup=get_main_keyboard())
 
@@ -177,7 +177,7 @@ async def process_search(message: Message, bot: Bot, state: FSMContext):
         if movie:
             await send_movie_to_user(bot, message.chat.id, movie, bot_username)
         else:
-            await message.answer("Movie not found.")
+            await message.answer("Kino topilmadi.")
         return
         
     # 2. Movie Title Search (Fuzzy Match using RapidFuzz)
@@ -185,11 +185,10 @@ async def process_search(message: Message, bot: Bot, state: FSMContext):
     matches = search_movies_fuzzy(query, movies)
     
     if not matches:
-        await message.answer("Movie not found.")
+        await message.answer("Kino topilmadi.")
         return
         
     # If exactly one high quality match or short list, let the user choose
-    # (To be safe, we can display them as inline buttons as requested: "If multiple movies match, display them as inline buttons")
     if len(matches) == 1:
         await send_movie_to_user(bot, message.chat.id, matches[0], bot_username)
     else:
@@ -202,4 +201,4 @@ async def process_search(message: Message, bot: Bot, state: FSMContext):
                     callback_data=f"view_movie_user_{movie.movie_code}"
                 )
             )
-        await message.answer("Multiple matches found. Select a movie:", reply_markup=builder.as_markup())
+        await message.answer("Bir nechta mos keladigan kinolar topildi. Kinoni tanlang:", reply_markup=builder.as_markup())
