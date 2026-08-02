@@ -75,10 +75,14 @@ def get_share_series_keyboard(bot_username: str, series_code: int) -> InlineKeyb
     builder.button(text="📤 Ulashish", url=f"https://t.me/share/url?url={share_url}")
     return builder.as_markup()
 
-def get_movie_list_keyboard(movies: List[Movie], page: int, total_pages: int) -> InlineKeyboardMarkup:
+def get_movie_list_keyboard(items: List[Any], page: int, total_pages: int) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    for movie in movies:
-        builder.row(InlineKeyboardButton(text=f"🎬 {movie.title} [{movie.movie_code}]", callback_data=f"view_movie_user_{movie.movie_code}"))
+    for item in items:
+        # Check if item is Movie or Series dynamically using attributes
+        if hasattr(item, "movie_code"):
+            builder.row(InlineKeyboardButton(text=f"🎬 {item.title} [{item.movie_code}]", callback_data=f"view_movie_user_{item.movie_code}"))
+        else:
+            builder.row(InlineKeyboardButton(text=f"📺 {item.title} [{item.series_code}]", callback_data=f"view_series_user_{item.series_code}"))
     
     nav_buttons = []
     if page > 1:

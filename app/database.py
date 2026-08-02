@@ -330,6 +330,26 @@ async def get_active_vip_users() -> List[User]:
         )
         return list(result.scalars().all())
 
+async def get_combined_catalog(offset: int = 0, limit: int = 10) -> Tuple[List[Any], int]:
+    async with AsyncSessionLocal() as session:
+        movies_res = await session.execute(select(Movie))
+        movies = list(movies_res.scalars().all())
+        
+        series_res = await session.execute(select(Series))
+        series_list = list(series_res.scalars().all())
+        
+        combined = []
+        for m in movies:
+            combined.append((m.movie_code, m))
+        for s in series_list:
+            combined.append((s.series_code, s))
+            
+        combined.sort(key=lambda x: x[0])
+        
+        total_count = len(combined)
+        paginated = [item[1] for item in combined[offset:offset+limit]]
+        return paginated, total_count
+
 # --- STATISTICS ---
 async def get_statistics() -> Dict[str, Any]:
     async with AsyncSessionLocal() as session:

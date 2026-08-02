@@ -4,7 +4,8 @@ from aiogram.types import CallbackQuery, Message
 from aiogram.fsm.context import FSMContext
 from app.database import (
     get_movie_by_code, get_all_movies, get_movie_count, get_setting,
-    get_or_create_user, get_series_by_code, increment_series_search_count, get_vip_plans
+    get_or_create_user, get_series_by_code, increment_series_search_count, get_vip_plans,
+    get_combined_catalog
 )
 from app.keyboards import (
     get_movie_list_keyboard, get_receipt_approval_keyboard,
@@ -267,13 +268,12 @@ async def process_movie_page(callback: CallbackQuery, bot: Bot, state: FSMContex
     limit = 10
     offset = (page - 1) * limit
     
-    movies = await get_all_movies(offset=offset, limit=limit)
-    total_count = await get_movie_count()
+    items, total_count = await get_combined_catalog(offset=offset, limit=limit)
     total_pages = (total_count + limit - 1) // limit
     
     await callback.message.edit_text(
-        "🎬 **Kinolar Katalogi**\n\nRo'yxatdan kinoni tanlang:",
-        reply_markup=get_movie_list_keyboard(movies, page, total_pages)
+        "🎬 **Kinolar Katalogi**\n\nRo'yxatdan tanlang:",
+        reply_markup=get_movie_list_keyboard(items, page, total_pages)
     )
     await callback.answer()
 

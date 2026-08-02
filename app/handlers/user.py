@@ -7,7 +7,8 @@ from app.config import ADMIN_IDS
 from app.database import (
     get_or_create_user, get_movie_by_code, get_all_movies, get_movie_count,
     get_setting, search_movies_db, increment_search_count, get_user,
-    get_series_by_code, search_series_db, increment_series_search_count, get_vip_plans
+    get_series_by_code, search_series_db, increment_series_search_count, get_vip_plans,
+    get_combined_catalog
 )
 from app.keyboards import (
     get_main_keyboard, get_join_channels_keyboard,
@@ -161,17 +162,16 @@ async def show_movies_menu(message: Message, bot: Bot, state: FSMContext):
         return
         
     limit = 10
-    movies = await get_all_movies(offset=0, limit=limit)
-    total_count = await get_movie_count()
+    items, total_count = await get_combined_catalog(offset=0, limit=limit)
     total_pages = (total_count + limit - 1) // limit
     
-    if not movies:
+    if not items:
         await message.answer("Hozircha kinolar va seriallar mavjud emas.")
         return
         
     await message.answer(
-        "🎬 **Kinolar Katalogi**\n\nRo'yxatdan kinoni tanlang:",
-        reply_markup=get_movie_list_keyboard(movies, 1, total_pages)
+        "🎬 **Kinolar Katalogi**\n\nRo'yxatdan tanlang:",
+        reply_markup=get_movie_list_keyboard(items, 1, total_pages)
     )
 
 @user_router.message(F.text == "⭐ VIP")
