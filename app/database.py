@@ -34,7 +34,6 @@ async def init_db():
                     VipPlan(name="3 Oylik", months=3, price="120,000 UZS"),
                     VipPlan(name="12 Oylik", months=12, price="400,000 UZS")
                 ])
-                await session.commit()
 
             # Seed default customizable messages if empty
             messages = {
@@ -46,7 +45,6 @@ async def init_db():
                 res = await session.execute(select(Setting).where(Setting.key == k))
                 if not res.scalars().first():
                     session.add(Setting(key=k, value=v))
-            await session.commit()
 
             # Load admins cache
             global DB_ADMIN_IDS
