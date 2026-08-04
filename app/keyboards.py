@@ -278,9 +278,10 @@ def get_admin_seasons_keyboard(series_code: int, seasons: List[int]) -> InlineKe
         builder.button(text=f"{s}-fasl", callback_data=f"admin_series_season_{series_code}_{s}")
     builder.adjust(4)
     builder.row(
-        InlineKeyboardButton(text="➕ Qism qo'shish", callback_data=f"admin_series_add_ep_{series_code}"),
-        InlineKeyboardButton(text="🔙 Orqaga", callback_data=f"admin_series_detail_{series_code}")
+        InlineKeyboardButton(text="➕ Fasl qo'shish", callback_data=f"admin_series_add_ep_{series_code}"),
+        InlineKeyboardButton(text="➕ Qism qo'shish", callback_data=f"admin_series_add_ep_{series_code}")
     )
+    builder.row(InlineKeyboardButton(text="🔙 Orqaga", callback_data=f"admin_series_detail_{series_code}"))
     return builder.as_markup()
 
 def get_admin_season_episodes_keyboard(series_code: int, season_number: int, episodes: List[Any]) -> InlineKeyboardMarkup:
