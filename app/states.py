@@ -30,3 +30,16 @@ class AdminState(StatesGroup):
     waiting_for_rename_movie = State()
     waiting_for_replace_movie_file = State()
     waiting_for_manual_vip_id = State()
+
+class AddAdminState(StatesGroup):
+    waiting_for_admin_id = State()
+
+class EditTextState(StatesGroup):
+    waiting_for_new_text = State()
+
+class ManageSeriesEpisodesState(StatesGroup):
+    waiting_for_season = State()
+    waiting_for_episode = State()
+    waiting_for_file = State()
+    waiting_for_replace_file = State()
+

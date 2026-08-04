@@ -1,10 +1,10 @@
 import datetime
 from typing import Optional, List, Dict, Any, Tuple
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
-from sqlalchemy import select, update, delete, func
+from sqlalchemy import select, update, delete, func, text
 from sqlalchemy.orm import selectinload
 from app.config import DATABASE_URL
-from app.models import Base, User, Movie, RequiredChannel, Setting, Series, SeriesEpisode, VipPlan
+from app.models import Base, User, Movie, RequiredChannel, Setting, Series, SeriesEpisode, VipPlan, AdminUser, DailySearch
 
 # Create async engine
 engine = create_async_engine(DATABASE_URL, echo=False)
@@ -12,10 +12,16 @@ engine = create_async_engine(DATABASE_URL, echo=False)
 # Session factory
 AsyncSessionLocal = async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
 
+DB_ADMIN_IDS = set()
+
 async def init_db():
     async with engine.begin() as conn:
         # Create tables if they don't exist
         await conn.run_sync(Base.metadata.create_all)
+        try:
+            await conn.execute(text("ALTER TABLE series_episodes ADD COLUMN IF NOT EXISTS season_number INTEGER DEFAULT 1;"))
+        except Exception as e:
+            logger.error(f"Migration error: {e}")
         
     # Seed default plans if empty
     async with AsyncSessionLocal() as session:
@@ -29,6 +35,24 @@ async def init_db():
                     VipPlan(name="12 Oylik", months=12, price="400,000 UZS")
                 ])
                 await session.commit()
+
+            # Seed default customizable messages if empty
+            messages = {
+                "start_message": "Salom {full_name}!\nKinobotga xush kelibsiz. Kino yoki serial kodini yuboring yoki nomi bo'yicha qidiring.",
+                "help_message": "ℹ️ Botdan foydalanish bo'yicha yo'riqnoma\n\n1. Kod orqali (masalan - 7 yoki 13)\n2. Nomi orqali ( Avatar, Titanik)\n3. Vip - hech qanaqa kanallarga obuna bolmasadan film tomosha qilish va qo\n4. Katalog - Barcha kinolarni sahifalab ko'rish uchun '🎬 Kinolar' bo'limiga bosing.\n\nReklama va takliflar uchun @Kinotimeadmin",
+                "vip_message": "⭐ **VIP Obuna**\n\nVIP foydalanuvchilar homiy kanallarga a'zo bo'lishlari shart emas!\n\nBoshlash uchun quyidagi VIP obuna rejalaridan birini tanlang:"
+            }
+            for k, v in messages.items():
+                res = await session.execute(select(Setting).where(Setting.key == k))
+                if not res.scalars().first():
+                    session.add(Setting(key=k, value=v))
+            await session.commit()
+
+            # Load admins cache
+            global DB_ADMIN_IDS
+            admin_res = await session.execute(select(AdminUser.id))
+            DB_ADMIN_IDS = set(admin_res.scalars().all())
+
 
 async def get_or_create_user(user_id: int, username: Optional[str], full_name: str) -> User:
     async with AsyncSessionLocal() as session:
@@ -184,11 +208,12 @@ async def add_series(title: str, channel_link: Optional[str] = None, episodes_co
             await session.commit()
             return series
 
-async def add_series_episode(series_code: int, episode_number: int, channel_id: int, message_id: int, file_id: str) -> SeriesEpisode:
+async def add_series_episode(series_code: int, episode_number: int, channel_id: int, message_id: int, file_id: str, season_number: int = 1) -> SeriesEpisode:
     async with AsyncSessionLocal() as session:
         async with session.begin():
             ep = SeriesEpisode(
                 series_code=series_code,
+                season_number=season_number,
                 episode_number=episode_number,
                 channel_id=channel_id,
                 message_id=message_id,
@@ -196,7 +221,44 @@ async def add_series_episode(series_code: int, episode_number: int, channel_id: 
             )
             session.add(ep)
             await session.commit()
+            
+            # Update episodes count dynamically
+            result = await session.execute(select(func.count(SeriesEpisode.id)).where(SeriesEpisode.series_code == series_code))
+            cnt = result.scalar() or 0
+            await session.execute(update(Series).where(Series.series_code == series_code).values(episodes_count=cnt))
+            await session.commit()
             return ep
+
+async def delete_series_episode(episode_id: int) -> bool:
+    async with AsyncSessionLocal() as session:
+        async with session.begin():
+            result = await session.execute(select(SeriesEpisode).where(SeriesEpisode.id == episode_id))
+            ep = result.scalars().first()
+            if ep:
+                series_code = ep.series_code
+                await session.delete(ep)
+                await session.commit()
+                
+                # Update episodes count dynamically
+                cnt_res = await session.execute(select(func.count(SeriesEpisode.id)).where(SeriesEpisode.series_code == series_code))
+                cnt = cnt_res.scalar() or 0
+                await session.execute(update(Series).where(Series.series_code == series_code).values(episodes_count=cnt))
+                await session.commit()
+                return True
+            return False
+
+async def replace_series_episode_file(episode_id: int, channel_id: int, message_id: int, file_id: str) -> bool:
+    async with AsyncSessionLocal() as session:
+        async with session.begin():
+            result = await session.execute(
+                update(SeriesEpisode).where(SeriesEpisode.id == episode_id).values(
+                    channel_id=channel_id,
+                    message_id=message_id,
+                    file_id=file_id
+                )
+            )
+            await session.commit()
+            return (result.rowcount or 0) > 0
 
 async def get_series_by_code(code: int) -> Optional[Series]:
     async with AsyncSessionLocal() as session:
@@ -350,6 +412,59 @@ async def get_combined_catalog(offset: int = 0, limit: int = 10) -> Tuple[List[A
         paginated = [item[1] for item in combined[offset:offset+limit]]
         return paginated, total_count
 
+
+# --- DYNAMIC ADMINS ---
+async def add_admin_user(user_id: int, username: Optional[str], full_name: str) -> AdminUser:
+    async with AsyncSessionLocal() as session:
+        async with session.begin():
+            admin = AdminUser(id=user_id, username=username, full_name=full_name)
+            session.add(admin)
+            await session.commit()
+            global DB_ADMIN_IDS
+            DB_ADMIN_IDS.add(user_id)
+            return admin
+
+async def delete_admin_user(user_id: int) -> bool:
+    async with AsyncSessionLocal() as session:
+        async with session.begin():
+            result = await session.execute(delete(AdminUser).where(AdminUser.id == user_id))
+            await session.commit()
+            global DB_ADMIN_IDS
+            DB_ADMIN_IDS.discard(user_id)
+            return (result.rowcount or 0) > 0
+
+async def get_all_admins() -> List[AdminUser]:
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(select(AdminUser).order_by(AdminUser.created_at.desc()))
+        return list(result.scalars().all())
+
+async def is_admin_db(user_id: int) -> bool:
+    global DB_ADMIN_IDS
+    return user_id in DB_ADMIN_IDS
+
+
+
+# --- DAILY SEARCH LOGS ---
+async def increment_daily_search():
+    async with AsyncSessionLocal() as session:
+        async with session.begin():
+            today = datetime.date.today()
+            result = await session.execute(select(DailySearch).where(DailySearch.date == today))
+            row = result.scalars().first()
+            if row:
+                row.count += 1
+            else:
+                row = DailySearch(date=today, count=1)
+                session.add(row)
+            await session.commit()
+
+async def get_today_searches() -> int:
+    async with AsyncSessionLocal() as session:
+        today = datetime.date.today()
+        result = await session.execute(select(DailySearch.count).where(DailySearch.date == today))
+        return result.scalar() or 0
+
+
 # --- STATISTICS ---
 async def get_statistics() -> Dict[str, Any]:
     async with AsyncSessionLocal() as session:
@@ -369,6 +484,11 @@ async def get_statistics() -> Dict[str, Any]:
         today = datetime.datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
         today_users = await session.execute(select(func.count(User.id)).where(User.created_at >= today))
         
+        thirty_days_ago = datetime.datetime.utcnow() - datetime.timedelta(days=30)
+        thirty_days_users = await session.execute(select(func.count(User.id)).where(User.created_at >= thirty_days_ago))
+        
+        today_searches = await get_today_searches()
+        
         all_users_res = await session.execute(select(User.id))
         all_user_ids = list(all_users_res.scalars().all())
 
@@ -379,5 +499,8 @@ async def get_statistics() -> Dict[str, Any]:
             "series": series.scalar() or 0,
             "searches": total_searches,
             "today_users": today_users.scalar() or 0,
+            "thirty_days_users": thirty_days_users.scalar() or 0,
+            "today_searches": today_searches,
             "all_user_ids": all_user_ids
         }
+

@@ -1,6 +1,6 @@
 import datetime
 from typing import Optional
-from sqlalchemy import BigInteger, String, Integer, DateTime, Boolean, ForeignKey
+from sqlalchemy import BigInteger, String, Integer, DateTime, Boolean, ForeignKey, Date
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 class Base(DeclarativeBase):
@@ -47,6 +47,7 @@ class SeriesEpisode(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     series_code: Mapped[int] = mapped_column(Integer, ForeignKey("series.series_code", ondelete="CASCADE"))
+    season_number: Mapped[Optional[int]] = mapped_column(Integer, default=1, nullable=True)
     episode_number: Mapped[int] = mapped_column(Integer)
     channel_id: Mapped[int] = mapped_column(BigInteger)
     message_id: Mapped[int] = mapped_column(Integer)
@@ -75,3 +76,18 @@ class VipPlan(Base):
     name: Mapped[str] = mapped_column(String(100))
     months: Mapped[int] = mapped_column(Integer)
     price: Mapped[str] = mapped_column(String(100))
+
+class AdminUser(Base):
+    __tablename__ = "admin_users"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)  # Telegram User ID
+    username: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    full_name: Mapped[str] = mapped_column(String(255))
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.utcnow)
+
+class DailySearch(Base):
+    __tablename__ = "daily_searches"
+
+    date: Mapped[datetime.date] = mapped_column(Date, primary_key=True)
+    count: Mapped[int] = mapped_column(Integer, default=0)
+

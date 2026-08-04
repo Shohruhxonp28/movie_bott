@@ -8,12 +8,13 @@ from app.database import (
     get_or_create_user, get_movie_by_code, get_all_movies, get_movie_count,
     get_setting, search_movies_db, increment_search_count, get_user,
     get_series_by_code, search_series_db, increment_series_search_count, get_vip_plans,
-    get_combined_catalog
+    get_combined_catalog, increment_daily_search
 )
 from app.keyboards import (
     get_main_keyboard, get_join_channels_keyboard,
     get_movie_list_keyboard, get_share_keyboard,
-    get_user_vip_plans_keyboard
+    get_user_vip_plans_keyboard, get_series_seasons_keyboard,
+    get_series_season_episodes_keyboard
 )
 from app.utils import check_user_subscription, search_items_fuzzy
 
@@ -45,28 +46,37 @@ async def send_series_to_user(bot: Bot, chat_id: int, series, bot_username: str)
         f"🆔 Kodi: {series.series_code}\n\n"
     )
     
-    from aiogram.utils.keyboard import InlineKeyboardBuilder
-    builder = InlineKeyboardBuilder()
-    
     if series.channel_link:
+        from aiogram.utils.keyboard import InlineKeyboardBuilder
+        builder = InlineKeyboardBuilder()
         text += "🍿 Ushbu serialni ko'rish uchun quyidagi havola orqali kanalga o'ting:"
         url = series.channel_link.strip()
         if not (url.startswith("http://") or url.startswith("https://")):
             url = f"https://t.me/{url.replace('@', '')}"
         builder.button(text="🍿 Serialni ko'rish (Kanal)", url=url)
+        share_url = f"https://t.me/{bot_username}?start=movie_{series.series_code}"
+        builder.row(InlineKeyboardButton(text="📤 Ulashish", url=f"https://t.me/share/url?url={share_url}"))
+        reply_markup = builder.as_markup()
     else:
-        text += "🍿 Qismni tanlab tomosha qiling:"
-        for i in range(1, series.episodes_count + 1):
-            builder.button(text=f"{i}-qism", callback_data=f"view_episode_{series.series_code}_{i}")
-        builder.adjust(4)
+        # Group by season
+        seasons = sorted(list(set([ep.season_number or 1 for ep in series.episodes])))
+        if not seasons:
+            seasons = [1]
         
-    share_url = f"https://t.me/{bot_username}?start=movie_{series.series_code}"
-    builder.row(InlineKeyboardButton(text="📤 Ulashish", url=f"https://t.me/share/url?url={share_url}"))
-    
+        if len(seasons) > 1:
+            text += "🍿 Faslni tanlab tomosha qiling:"
+            reply_markup = get_series_seasons_keyboard(series.series_code, seasons)
+        else:
+            text += "🍿 Qismni tanlab tomosha qiling:"
+            season_num = seasons[0]
+            season_episodes = [ep for ep in series.episodes if (ep.season_number or 1) == season_num]
+            season_episodes.sort(key=lambda x: x.episode_number)
+            reply_markup = get_series_season_episodes_keyboard(series.series_code, season_num, season_episodes)
+            
     await bot.send_message(
         chat_id=chat_id,
         text=text,
-        reply_markup=builder.as_markup()
+        reply_markup=reply_markup
     )
 
 async def check_and_prompt_subscription(message: Message, bot: Bot, state: FSMContext, pending_movie_code: int = None) -> bool:
@@ -146,11 +156,12 @@ async def cmd_start(message: Message, command: CommandObject, state: FSMContext,
         
     is_subbed = await check_user_subscription(bot, message.from_user.id)
     if is_subbed:
-        await message.answer(
-            f"👋 Salom {message.from_user.full_name}!\n"
-            "Kinobotga xush kelibsiz. Kino yoki serial kodini yuboring yoki nomi bo'yicha qidiring.",
-            reply_markup=get_main_keyboard()
+        start_tpl = await get_setting(
+            "start_message",
+            "Salom {full_name}!\nKinobotga xush kelibsiz. Kino yoki serial kodini yuboring yoki nomi bo'yicha qidiring."
         )
+        msg_text = start_tpl.replace("{full_name}", message.from_user.full_name)
+        await message.answer(msg_text, reply_markup=get_main_keyboard())
     else:
         await check_and_prompt_subscription(message, bot, state)
 
@@ -191,24 +202,19 @@ async def show_vip_menu(message: Message, bot: Bot, state: FSMContext):
         return
         
     plans = await get_vip_plans()
-    
-    text = (
-        "⭐ **VIP Obuna**\n\n"
-        "VIP foydalanuvchilar homiy kanallarga a'zo bo'lishlari shart emas!\n\n"
-        "Boshlash uchun quyidagi VIP obuna rejalaridan birini tanlang:"
+    vip_msg = await get_setting(
+        "vip_message",
+        "⭐ **VIP Obuna**\n\nVIP foydalanuvchilar homiy kanallarga a'zo bo'lishlari shart emas!\n\nBoshlash uchun quyidagi VIP obuna rejalaridan birini tanlang:"
     )
-    await message.answer(text, reply_markup=get_user_vip_plans_keyboard(plans))
+    await message.answer(vip_msg, reply_markup=get_user_vip_plans_keyboard(plans))
 
 @user_router.message(F.text == "ℹ️ Yordam")
 async def show_help_menu(message: Message):
-    text = (
-        "ℹ️ **Botdan foydalanish bo'yicha yo'riqnoma**\n\n"
-        "1. **Kod orqali**: Shunchaki kino yoki serial kodini yuboring (masalan, `125` yoki `1000`) va bot uni darhol yuboradi.\n"
-        "2. **Nomi orqali**: Nomi bo'yicha qidiring (masalan, `Avatar` yoki `Titanik`). Bot eng yaqin mos keladigan kinolar va seriallarni topadi.\n"
-        "3. **VIP Kirish**: Homiy kanallarga a'zo bo'lmaslik uchun VIP obunani sotib oling.\n"
-        "4. **Katalog**: Barcha kinolarni sahifalab ko'rish uchun '🎬 Kinolar' bo'limiga bosing."
+    help_text = await get_setting(
+        "help_message",
+        "ℹ️ Botdan foydalanish bo'yicha yo'riqnoma\n\n1. Kod orqali (masalan - 7 yoki 13)\n2. Nomi orqali ( Avatar, Titanik)\n3. Vip - hech qanaqa kanallarga obuna bolmasadan film tomosha qilish va qo\n4. Katalog - Barcha kinolarni sahifalab ko'rish uchun '🎬 Kinolar' bo'limiga bosing.\n\nReklama va takliflar uchun @Kinotimeadmin"
     )
-    await message.answer(text, reply_markup=get_main_keyboard())
+    await message.answer(help_text, reply_markup=get_main_keyboard())
 
 # --- DYNAMIC TEXT SEARCH (CODE OR FUZZY TITLE) ---
 @user_router.message(F.text)
@@ -216,6 +222,8 @@ async def process_search(message: Message, bot: Bot, state: FSMContext):
     is_subbed = await check_and_prompt_subscription(message, bot, state)
     if not is_subbed:
         return
+        
+    await increment_daily_search()
         
     query = message.text.strip()
     bot_info = await bot.get_me()

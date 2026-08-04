@@ -218,6 +218,7 @@ async def process_view_episode(callback: CallbackQuery, bot: Bot):
     parts = callback.data.replace("view_episode_", "").split("_")
     series_code = int(parts[0])
     episode_number = int(parts[1])
+    season_number = int(parts[2]) if len(parts) > 2 else 1
     
     series = await get_series_by_code(series_code)
     if not series:
@@ -226,7 +227,7 @@ async def process_view_episode(callback: CallbackQuery, bot: Bot):
         
     episode = None
     for ep in series.episodes:
-        if ep.episode_number == episode_number:
+        if ep.episode_number == episode_number and (ep.season_number or 1) == season_number:
             episode = ep
             break
             
@@ -238,15 +239,44 @@ async def process_view_episode(callback: CallbackQuery, bot: Bot):
     
     try:
         await increment_series_search_count(series_code)
+        caption = f"📺 {series.title} | {season_number}-fasl, {episode_number}-qism" if len(parts) > 2 else f"📺 {series.title} | {episode_number}-qism"
         await bot.copy_message(
             chat_id=callback.message.chat.id,
             from_chat_id=episode.channel_id,
             message_id=episode.message_id,
-            caption=f"📺 {series.title} | {episode_number}-qism"
+            caption=caption
         )
     except Exception as e:
         logger.error(f"Error copying episode: {e}")
         await callback.message.answer(f"❌ Qismni yuborishda xatolik yuz berdi: {e}")
+
+@callback_router.callback_query(F.data.startswith("view_season_"))
+async def process_view_season(callback: CallbackQuery, bot: Bot):
+    user_id = callback.from_user.id
+    is_subscribed = await check_user_subscription(bot, user_id)
+    
+    if not is_subscribed:
+        await callback.answer("⚠️ Avval homiy kanallarga a'zo bo'ling!", show_alert=True)
+        return
+        
+    parts = callback.data.replace("view_season_", "").split("_")
+    series_code = int(parts[0])
+    season_number = int(parts[1])
+    
+    series = await get_series_by_code(series_code)
+    if not series:
+        await callback.answer("❌ Serial topilmadi.", show_alert=True)
+        return
+        
+    season_episodes = [ep for ep in series.episodes if (ep.season_number or 1) == season_number]
+    season_episodes.sort(key=lambda x: x.episode_number)
+    
+    from app.keyboards import get_series_season_episodes_keyboard
+    await callback.message.edit_text(
+        f"📺 **{series.title} | {season_number}-fasl qismlari**\n\nQismni tanlang:",
+        reply_markup=get_series_season_episodes_keyboard(series_code, season_number, season_episodes)
+    )
+    await callback.answer()
 
 @callback_router.callback_query(F.data.startswith("movie_page_"))
 async def process_movie_page(callback: CallbackQuery, bot: Bot, state: FSMContext):

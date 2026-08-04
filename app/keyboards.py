@@ -114,6 +114,10 @@ def get_admin_panel() -> InlineKeyboardMarkup:
         InlineKeyboardButton(text="📺 Majburiy kanallar", callback_data="admin_channels"),
         InlineKeyboardButton(text="📊 Statistika", callback_data="admin_stats")
     )
+    builder.row(
+        InlineKeyboardButton(text="👥 Adminlar", callback_data="admin_manage_admins"),
+        InlineKeyboardButton(text="📝 Matnlarni tahrirlash", callback_data="admin_edit_texts")
+    )
     return builder.as_markup()
 
 def get_receipt_approval_keyboard(user_id: int, months: int) -> InlineKeyboardMarkup:
@@ -262,8 +266,43 @@ def get_series_detail_keyboard(code: int) -> InlineKeyboardMarkup:
         InlineKeyboardButton(text="✏️ Nomini o'zgartirish", callback_data=f"admin_rename_series_{code}")
     )
     builder.row(
-        InlineKeyboardButton(text="🗑️ O'chirish", callback_data=f"admin_delete_series_{code}"),
-        InlineKeyboardButton(text="🔙 Ro'yxatga qaytish", callback_data="admin_series_page_1")
+        InlineKeyboardButton(text="📁 Qismlarni boshqarish", callback_data=f"admin_series_manage_episodes_{code}"),
+        InlineKeyboardButton(text="🗑️ O'chirish", callback_data=f"admin_delete_series_{code}")
+    )
+    builder.row(InlineKeyboardButton(text="🔙 Ro'yxatga qaytish", callback_data="admin_series_page_1"))
+    return builder.as_markup()
+
+def get_admin_seasons_keyboard(series_code: int, seasons: List[int]) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    for s in seasons:
+        builder.button(text=f"{s}-fasl", callback_data=f"admin_series_season_{series_code}_{s}")
+    builder.adjust(4)
+    builder.row(
+        InlineKeyboardButton(text="➕ Qism qo'shish", callback_data=f"admin_series_add_ep_{series_code}"),
+        InlineKeyboardButton(text="🔙 Orqaga", callback_data=f"admin_series_detail_{series_code}")
+    )
+    return builder.as_markup()
+
+def get_admin_season_episodes_keyboard(series_code: int, season_number: int, episodes: List[Any]) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    for ep in episodes:
+        builder.button(text=f"{ep.episode_number}-qism", callback_data=f"admin_series_ep_detail_{series_code}_{ep.id}")
+    builder.adjust(4)
+    builder.row(
+        InlineKeyboardButton(text="➕ Qism qo'shish", callback_data=f"admin_series_add_ep_{series_code}"),
+        InlineKeyboardButton(text="🔙 Fasllarga", callback_data=f"admin_series_manage_episodes_{series_code}")
+    )
+    return builder.as_markup()
+
+def get_admin_episode_detail_keyboard(series_code: int, episode_id: int, season_number: int) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        InlineKeyboardButton(text="👁️ Faylni ko'rish", callback_data=f"admin_series_ep_view_{episode_id}"),
+        InlineKeyboardButton(text="🔄 Faylni almashtirish", callback_data=f"admin_series_ep_replace_{episode_id}")
+    )
+    builder.row(
+        InlineKeyboardButton(text="🗑️ Qismni o'chirish", callback_data=f"admin_series_ep_delete_{episode_id}"),
+        InlineKeyboardButton(text="🔙 Orqaga", callback_data=f"admin_series_season_{series_code}_{season_number}")
     )
     return builder.as_markup()
 
@@ -272,6 +311,21 @@ def get_series_episodes_keyboard(series_code: int, episodes_count: int) -> Inlin
     for i in range(1, episodes_count + 1):
         builder.button(text=f"{i}-qism", callback_data=f"view_episode_{series_code}_{i}")
     builder.adjust(4)
+    return builder.as_markup()
+
+def get_series_seasons_keyboard(series_code: int, seasons: List[int]) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    for s in seasons:
+        builder.button(text=f"{s}-fasl", callback_data=f"view_season_{series_code}_{s}")
+    builder.adjust(3)
+    return builder.as_markup()
+
+def get_series_season_episodes_keyboard(series_code: int, season_number: int, episodes: List[Any]) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    for ep in episodes:
+        builder.button(text=f"{ep.episode_number}-qism", callback_data=f"view_episode_{series_code}_{ep.episode_number}_{season_number}")
+    builder.adjust(4)
+    builder.row(InlineKeyboardButton(text="🔙 Fasllarga", callback_data=f"view_series_user_{series_code}"))
     return builder.as_markup()
 
 def get_series_link_keyboard(channel_link: str) -> InlineKeyboardMarkup:
@@ -287,3 +341,27 @@ def get_finish_upload_keyboard() -> InlineKeyboardMarkup:
     builder.row(InlineKeyboardButton(text="💾 Yakunlash", callback_data="series_finish_upload"))
     builder.row(InlineKeyboardButton(text="❌ Bekor qilish", callback_data="admin_back"))
     return builder.as_markup()
+
+# --- ADMIN DYNAMIC ADMINS KEYBOARDS ---
+def get_admin_manage_admins_keyboard(admins: List[Any]) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    for admin in admins:
+        username_str = f" (@{admin.username})" if admin.username else ""
+        builder.row(
+            InlineKeyboardButton(text=f"❌ O'chirish: {admin.full_name}{username_str}", callback_data=f"admin_delete_admin_{admin.id}")
+        )
+    builder.row(
+        InlineKeyboardButton(text="➕ Admin qo'shish", callback_data="admin_add_admin_prompt"),
+        InlineKeyboardButton(text="🔙 Orqaga", callback_data="admin_back")
+    )
+    return builder.as_markup()
+
+# --- ADMIN EDIT TEXTS KEYBOARDS ---
+def get_admin_edit_texts_keyboard() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.row(InlineKeyboardButton(text="🏠 Start xabari", callback_data="admin_edit_text_start_message"))
+    builder.row(InlineKeyboardButton(text="ℹ️ Yordam xabari", callback_data="admin_edit_text_help_message"))
+    builder.row(InlineKeyboardButton(text="⭐ VIP xabari", callback_data="admin_edit_text_vip_message"))
+    builder.row(InlineKeyboardButton(text="🔙 Orqaga", callback_data="admin_back"))
+    return builder.as_markup()
+

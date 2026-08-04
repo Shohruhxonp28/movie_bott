@@ -5,7 +5,10 @@ from aiogram.types import Message, CallbackQuery, InlineKeyboardButton
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from app.config import ADMIN_IDS, STORAGE_CHANNEL_ID
-from app.states import AdminState, AddMovieState, AddSeriesState, AddVipPlanState, ManageVipUserState
+from app.states import (
+    AdminState, AddMovieState, AddSeriesState, AddVipPlanState, ManageVipUserState,
+    AddAdminState, EditTextState, ManageSeriesEpisodesState
+)
 from app.database import (
     get_statistics, get_setting, set_setting, get_required_channels,
     add_required_channel, delete_required_channel, add_movie,
@@ -13,7 +16,9 @@ from app.database import (
     replace_movie_file, delete_movie, update_vip_until,
     add_series, add_series_episode, get_all_series, get_series_count,
     get_series_by_code, rename_series, delete_series, get_active_vip_users,
-    get_vip_plans, add_vip_plan, delete_vip_plan, remove_user_vip, get_user
+    get_vip_plans, add_vip_plan, delete_vip_plan, remove_user_vip, get_user,
+    is_admin_db, add_admin_user, delete_admin_user, get_all_admins,
+    replace_series_episode_file, delete_series_episode
 )
 from app.keyboards import (
     get_admin_panel, get_admin_channels_keyboard, get_admin_movies_keyboard,
@@ -21,17 +26,19 @@ from app.keyboards import (
     get_receipt_approval_keyboard, get_series_type_keyboard,
     get_admin_series_keyboard, get_series_detail_keyboard,
     get_admin_vip_keyboard, get_admin_vip_user_manage_keyboard,
-    get_admin_manual_vip_plans_keyboard
+    get_admin_manual_vip_plans_keyboard, get_admin_seasons_keyboard,
+    get_admin_season_episodes_keyboard, get_admin_episode_detail_keyboard,
+    get_admin_manage_admins_keyboard, get_admin_edit_texts_keyboard
 )
 
 logger = logging.getLogger(__name__)
 admin_router = Router()
 
 def is_admin(message: Message) -> bool:
-    return message.from_user.id in ADMIN_IDS
+    return message.from_user.id in ADMIN_IDS or is_admin_db(message.from_user.id)
 
 def is_admin_callback(callback: CallbackQuery) -> bool:
-    return callback.from_user.id in ADMIN_IDS
+    return callback.from_user.id in ADMIN_IDS or is_admin_db(callback.from_user.id)
 
 @admin_router.message(Command("admin"))
 async def admin_start(message: Message, state: FSMContext):
@@ -43,6 +50,7 @@ async def admin_start(message: Message, state: FSMContext):
 @admin_router.callback_query(F.data == "admin_back")
 async def back_to_admin(callback: CallbackQuery, state: FSMContext):
     if not is_admin_callback(callback):
+
         return
     await state.clear()
     await callback.message.edit_text("🛠️ Admin panelga xush kelibsiz. Amalni tanlang:", reply_markup=get_admin_panel())
@@ -61,7 +69,9 @@ async def show_stats(callback: CallbackQuery):
         f"🎬 Jami filmlar: {stats['movies']}\n"
         f"📺 Jami seriallar: {stats['series']}\n"
         f"🔍 Jami qidiruvlar: {stats['searches']}\n"
-        f"📅 Bugungi ro'yxatdan o'tganlar: {stats['today_users']}"
+        f"📅 Bugungi ro'yxatdan o'tganlar: {stats['today_users']}\n"
+        f"📅 Oxirgi 30 kundagi yangi a'zolar: {stats['thirty_days_users']}\n"
+        f"🔍 Bugungi qidiruvlar: {stats['today_searches']}"
     )
     await callback.message.edit_text(text, reply_markup=get_admin_panel())
     await callback.answer()
@@ -898,3 +908,317 @@ async def admin_delete_series_action(callback: CallbackQuery):
         await callback.message.edit_text("✅ Serial muvaffaqiyatli o'chirildi.", reply_markup=get_admin_panel())
     else:
         await callback.answer("❌ Serialni o'chirishda xatolik.", show_alert=True)
+
+
+# --- DYNAMIC ADMINS MANAGEMENT HANDLERS ---
+@admin_router.callback_query(F.data == "admin_manage_admins")
+async def manage_admins(callback: CallbackQuery):
+    if not is_admin_callback(callback):
+        return
+    admins = await get_all_admins()
+    await callback.message.edit_text(
+        "👥 **Bot administratorlari boshqaruvi**\n\n"
+        "Quyidagi dynamic adminlar ro'yxatidan o'chirishingiz mumkin yoki yangi admin qo'shing:",
+        reply_markup=get_admin_manage_admins_keyboard(admins)
+    )
+    await callback.answer()
+
+@admin_router.callback_query(F.data == "admin_add_admin_prompt")
+async def add_admin_prompt(callback: CallbackQuery, state: FSMContext):
+    if not is_admin_callback(callback):
+        return
+    await state.set_state(AddAdminState.waiting_for_admin_id)
+    await callback.message.edit_text("👤 Yangi adminning Telegram **User ID** raqamini kiriting:")
+    await callback.answer()
+
+@admin_router.message(AddAdminState.waiting_for_admin_id)
+async def add_admin_save(message: Message, state: FSMContext):
+    if not is_admin(message):
+        return
+    user_id_str = message.text.strip()
+    if not user_id_str.isdigit():
+        await message.answer("❌ Noto'g'ri format. Iltimos faqat raqamlardan iborat bo'lgan User ID yuboring.")
+        return
+    user_id = int(user_id_str)
+    user = await get_user(user_id)
+    
+    username = user.username if user else None
+    full_name = user.full_name if user else f"User ID: {user_id}"
+    
+    await add_admin_user(user_id, username, full_name)
+    await state.clear()
+    await message.answer(f"✅ Yangi admin qo'shildi: {full_name}", reply_markup=get_admin_panel())
+
+@admin_router.callback_query(F.data.startswith("admin_delete_admin_"))
+async def delete_admin_action(callback: CallbackQuery):
+    if not is_admin_callback(callback):
+        return
+    admin_id = int(callback.data.replace("admin_delete_admin_", ""))
+    success = await delete_admin_user(admin_id)
+    if success:
+        await callback.answer("✅ Admin o'chirildi.")
+        admins = await get_all_admins()
+        await callback.message.edit_text("👥 Administratorlar ro'yxati yangilandi:", reply_markup=get_admin_manage_admins_keyboard(admins))
+    else:
+        await callback.answer("❌ Xatolik yuz berdi.", show_alert=True)
+
+
+# --- CUSTOMIZABLE TEXT SETTINGS HANDLERS ---
+@admin_router.callback_query(F.data == "admin_edit_texts")
+async def edit_texts_menu(callback: CallbackQuery):
+    if not is_admin_callback(callback):
+        return
+    await callback.message.edit_text(
+        "📝 **Bot matnlarini sozlash bo'limi**\n\n"
+        "Tahrirlamoqchi bo'lgan matnni tanlang:",
+        reply_markup=get_admin_edit_texts_keyboard()
+    )
+    await callback.answer()
+
+@admin_router.callback_query(F.data.startswith("admin_edit_text_"))
+async def edit_text_prompt(callback: CallbackQuery, state: FSMContext):
+    if not is_admin_callback(callback):
+        return
+    key = callback.data.replace("admin_edit_text_", "")
+    current_text = await get_setting(key, "Mavjud emas")
+    await state.update_data(editing_text_key=key)
+    await state.set_state(EditTextState.waiting_for_new_text)
+    await callback.message.edit_text(
+        f"📝 **Hozirgi matn ({key}):**\n\n`{current_text}`\n\n"
+        "Yangi matnni yuboring:"
+    )
+    await callback.answer()
+
+@admin_router.message(EditTextState.waiting_for_new_text)
+async def save_custom_text(message: Message, state: FSMContext):
+    if not is_admin(message):
+        return
+    new_text = message.text.strip()
+    data = await state.get_data()
+    key = data.get("editing_text_key")
+    
+    await set_setting(key, new_text)
+    await state.clear()
+    await message.answer(f"✅ Matn muvaffaqiyatli saqlandi!", reply_markup=get_admin_panel())
+
+
+# --- SEASONS & EPISODES MANAGEMENT HANDLERS ---
+@admin_router.callback_query(F.data.startswith("admin_series_manage_episodes_"))
+async def admin_series_manage_episodes(callback: CallbackQuery):
+    if not is_admin_callback(callback):
+        return
+    code = int(callback.data.replace("admin_series_manage_episodes_", ""))
+    series = await get_series_by_code(code)
+    if not series:
+        await callback.answer("Serial topilmadi.", show_alert=True)
+        return
+    seasons = sorted(list(set([ep.season_number or 1 for ep in series.episodes])))
+    if not seasons:
+        seasons = [1]
+    await callback.message.edit_text(
+        f"📺 **{series.title}** qismlarini boshqarish.\n\n"
+        "Faslni tanlang:",
+        reply_markup=get_admin_seasons_keyboard(code, seasons)
+    )
+    await callback.answer()
+
+@admin_router.callback_query(F.data.startswith("admin_series_season_"))
+async def admin_series_season_episodes(callback: CallbackQuery):
+    if not is_admin_callback(callback):
+        return
+    parts = callback.data.replace("admin_series_season_", "").split("_")
+    code = int(parts[0])
+    season_num = int(parts[1])
+    series = await get_series_by_code(code)
+    if not series:
+        await callback.answer("Serial topilmadi.", show_alert=True)
+        return
+    episodes = [ep for ep in series.episodes if (ep.season_number or 1) == season_num]
+    episodes.sort(key=lambda x: x.episode_number)
+    await callback.message.edit_text(
+        f"📺 **{series.title} | {season_num}-fasl qismlari**\n\n"
+        "Boshqarish uchun qismni tanlang:",
+        reply_markup=get_admin_season_episodes_keyboard(code, season_num, episodes)
+    )
+    await callback.answer()
+
+@admin_router.callback_query(F.data.startswith("admin_series_ep_detail_"))
+async def admin_series_ep_detail(callback: CallbackQuery):
+    if not is_admin_callback(callback):
+        return
+    parts = callback.data.replace("admin_series_ep_detail_", "").split("_")
+    series_code = int(parts[0])
+    ep_id = int(parts[1])
+    
+    series = await get_series_by_code(series_code)
+    episode = next((ep for ep in series.episodes if ep.id == ep_id), None)
+    if not episode:
+        await callback.answer("Qism topilmadi.", show_alert=True)
+        return
+        
+    await callback.message.edit_text(
+        f"📺 **{series.title} | {(episode.season_number or 1)}-fasl, {episode.episode_number}-qism**\n\n"
+        "Amalni tanlang:",
+        reply_markup=get_admin_episode_detail_keyboard(series_code, ep_id, (episode.season_number or 1))
+    )
+    await callback.answer()
+
+@admin_router.callback_query(F.data.startswith("admin_series_ep_view_"))
+async def admin_series_ep_view(callback: CallbackQuery, bot: Bot):
+    if not is_admin_callback(callback):
+        return
+    ep_id = int(callback.data.replace("admin_series_ep_view_", ""))
+    from app.database import AsyncSessionLocal
+    from app.models import SeriesEpisode
+    async with AsyncSessionLocal() as session:
+        res = await session.execute(select(SeriesEpisode).where(SeriesEpisode.id == ep_id))
+        episode = res.scalars().first()
+        
+    if not episode:
+        await callback.answer("Qism topilmadi.", show_alert=True)
+        return
+        
+    try:
+        await bot.copy_message(
+            chat_id=callback.message.chat.id,
+            from_chat_id=episode.channel_id,
+            message_id=episode.message_id
+        )
+        await callback.answer()
+    except Exception as e:
+        await callback.answer(f"Xatolik: {e}", show_alert=True)
+
+@admin_router.callback_query(F.data.startswith("admin_series_ep_replace_"))
+async def admin_series_ep_replace_prompt(callback: CallbackQuery, state: FSMContext):
+    if not is_admin_callback(callback):
+        return
+    ep_id = int(callback.data.replace("admin_series_ep_replace_", ""))
+    await state.set_state(ManageSeriesEpisodesState.waiting_for_replace_file)
+    await state.update_data(replace_episode_id=ep_id)
+    await callback.message.edit_text("🔄 Yangi qism faylini yuboring:")
+    await callback.answer()
+
+@admin_router.message(ManageSeriesEpisodesState.waiting_for_replace_file)
+async def admin_series_ep_replace_save(message: Message, state: FSMContext, bot: Bot):
+    if not is_admin(message):
+        return
+        
+    file_id = None
+    if message.video:
+        file_id = message.video.file_id
+    elif message.document:
+        file_id = message.document.file_id
+    elif message.audio:
+        file_id = message.audio.file_id
+    elif message.animation:
+        file_id = message.animation.file_id
+    else:
+        await message.answer("❌ Iltimos, video, hujjat, audio yoki animatsiya fayli yuboring.")
+        return
+        
+    data = await state.get_data()
+    ep_id = data.get("replace_episode_id")
+    
+    try:
+        forwarded = await bot.forward_message(
+            chat_id=STORAGE_CHANNEL_ID,
+            from_chat_id=message.chat.id,
+            message_id=message.message_id
+        )
+        success = await replace_series_episode_file(ep_id, STORAGE_CHANNEL_ID, forwarded.message_id, file_id)
+        await state.clear()
+        if success:
+            await message.answer("✅ Fayl muvaffaqiyatli almashtirildi!", reply_markup=get_admin_panel())
+        else:
+            await message.answer("❌ Faylni almashtirib bo'lmadi.", reply_markup=get_admin_panel())
+    except Exception as e:
+        await message.answer(f"❌ Xatolik: {e}")
+
+@admin_router.callback_query(F.data.startswith("admin_series_ep_delete_"))
+async def admin_series_ep_delete(callback: CallbackQuery):
+    if not is_admin_callback(callback):
+        return
+    ep_id = int(callback.data.replace("admin_series_ep_delete_", ""))
+    success = await delete_series_episode(ep_id)
+    if success:
+        await callback.answer("✅ Qism o'chirildi.")
+        await callback.message.edit_text("✅ Qism muvaffaqiyatli o'chirildi.", reply_markup=get_admin_panel())
+    else:
+        await callback.answer("❌ O'chirishda xatolik yuz berdi.", show_alert=True)
+
+@admin_router.callback_query(F.data.startswith("admin_series_add_ep_"))
+async def admin_series_add_ep_prompt(callback: CallbackQuery, state: FSMContext):
+    if not is_admin_callback(callback):
+        return
+    code = int(callback.data.replace("admin_series_add_ep_", ""))
+    await state.set_state(ManageSeriesEpisodesState.waiting_for_season)
+    await state.update_data(add_ep_series_code=code)
+    await callback.message.edit_text("📅 Qism qaysi **fasl**ga tegishli? (Faqat raqam yozing, masalan: 1):")
+    await callback.answer()
+
+@admin_router.message(ManageSeriesEpisodesState.waiting_for_season)
+async def admin_series_add_ep_season(message: Message, state: FSMContext):
+    if not is_admin(message):
+        return
+    val = message.text.strip()
+    if not val.isdigit():
+        await message.answer("❌ Iltimos faqat raqam kiriting:")
+        return
+    await state.update_data(add_ep_season=int(val))
+    await state.set_state(ManageSeriesEpisodesState.waiting_for_episode)
+    await message.answer("🔢 Bu nechanchi **qism**? (Faqat raqam yozing, masalan: 12):")
+
+@admin_router.message(ManageSeriesEpisodesState.waiting_for_episode)
+async def admin_series_add_ep_num(message: Message, state: FSMContext):
+    if not is_admin(message):
+        return
+    val = message.text.strip()
+    if not val.isdigit():
+        await message.answer("❌ Iltimos faqat raqam kiriting:")
+        return
+    await state.update_data(add_ep_episode=int(val))
+    await state.set_state(ManageSeriesEpisodesState.waiting_for_file)
+    await message.answer("📁 Endi qism faylini yuboring (video, hujjat):")
+
+@admin_router.message(ManageSeriesEpisodesState.waiting_for_file)
+async def admin_series_add_ep_file(message: Message, state: FSMContext, bot: Bot):
+    if not is_admin(message):
+        return
+        
+    file_id = None
+    if message.video:
+        file_id = message.video.file_id
+    elif message.document:
+        file_id = message.document.file_id
+    elif message.audio:
+        file_id = message.audio.file_id
+    elif message.animation:
+        file_id = message.animation.file_id
+    else:
+        await message.answer("❌ Iltimos, video, hujjat, audio yoki animatsiya fayli yuboring.")
+        return
+        
+    data = await state.get_data()
+    code = data.get("add_ep_series_code")
+    season = data.get("add_ep_season")
+    episode = data.get("add_ep_episode")
+    
+    try:
+        forwarded = await bot.forward_message(
+            chat_id=STORAGE_CHANNEL_ID,
+            from_chat_id=message.chat.id,
+            message_id=message.message_id
+        )
+        await add_series_episode(
+            series_code=code,
+            season_number=season,
+            episode_number=episode,
+            channel_id=STORAGE_CHANNEL_ID,
+            message_id=forwarded.message_id,
+            file_id=file_id
+        )
+        await state.clear()
+        await message.answer(f"✅ {season}-fasl, {episode}-qism muvaffaqiyatli qo'shildi!", reply_markup=get_admin_panel())
+    except Exception as e:
+        await message.answer(f"❌ Faylni saqlashda xatolik: {e}")
+
