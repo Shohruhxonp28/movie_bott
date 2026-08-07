@@ -80,8 +80,10 @@ async def process_vip_plan_selection(callback: CallbackQuery, state: FSMContext)
     
     text = (
         f"💳 **Reja: {months} Oylik**\n\n"
-        "Iltimos, VIP obuna to'lovini amalga oshirgach, **to'lov chekini** (rasm yoki hujjat shaklida) bu yerga yuboring. "
-        "Administratorlar to'lovni tez orada tekshirib, VIP obunangizni faollashtirib berishadi."
+        f"💳 **Karta raqami:** `9860350142379998`\n"
+        f"👤 **Karta egasi:** Shohruhxon\n\n"
+        "To'lovni amalga oshirgach, **to'lov chekini** (rasm yoki hujjat shaklida) shu yerga yuboring.\n"
+        "Administratorlar to'lovni tekshirib, VIP obunangizni faollashtirib berishadi."
     )
     await callback.message.edit_text(text)
     await callback.answer()
