@@ -453,12 +453,28 @@ async def approve_vip(callback: CallbackQuery, bot: Bot):
                 chat_id=user_id,
                 text=f"🎉 **VIP Obuna muvaffaqiyatli faollashtirildi!**\n\nSizning obunangiz {months} oyga faollashtirildi. VIP muddati: {new_expiry.strftime('%Y-%m-%d %H:%M:%S')} UTC gacha."
             )
+        except Exception as e:
+            logger.error(f"Error sending notification to user: {e}")
+            
+        success_text = f"✅ Foydalanuvchi `{user_id}` uchun VIP muvaffaqiyatli faollashtirildi ({months} oy). Muddat: {new_expiry.strftime('%Y-%m-%d')}"
+        try:
+            if callback.message.caption is not None:
+                await callback.message.edit_caption(caption=success_text)
+            else:
+                await callback.message.edit_text(text=success_text)
+        except Exception as e:
+            logger.error(f"Error updating admin message: {e}")
+            
+        await callback.answer("✅ VIP muvaffaqiyatli qo'shildi!", show_alert=True)
+    else:
+        try:
+            if callback.message.caption is not None:
+                await callback.message.edit_caption(caption="❌ Foydalanuvchi topilmadi.")
+            else:
+                await callback.message.edit_text(text="❌ Foydalanuvchi topilmadi.")
         except Exception:
             pass
-        await callback.message.edit_text(f"✅ Foydalanuvchi {user_id} uchun VIP faollashtirildi ({months} oy). Muddat: {new_expiry.strftime('%Y-%m-%d')}")
-    else:
-        await callback.message.edit_text("❌ Foydalanuvchi topilmadi.")
-    await callback.answer()
+        await callback.answer("❌ Foydalanuvchi topilmadi.", show_alert=True)
 
 @admin_router.callback_query(F.data.startswith("reject_vip_"))
 async def reject_vip(callback: CallbackQuery, bot: Bot):
@@ -472,8 +488,16 @@ async def reject_vip(callback: CallbackQuery, bot: Bot):
         )
     except Exception:
         pass
-    await callback.message.edit_text(f"❌ Foydalanuvchi {user_id} uchun VIP so'rovi rad etildi.")
-    await callback.answer()
+        
+    reject_text = f"❌ Foydalanuvchi `{user_id}` uchun VIP so'rovi rad etildi."
+    try:
+        if callback.message.caption is not None:
+            await callback.message.edit_caption(caption=reject_text)
+        else:
+            await callback.message.edit_text(text=reject_text)
+    except Exception:
+        pass
+    await callback.answer("❌ So'rov rad etildi.", show_alert=True)
 
 # --- VIP MANAGEMENT & PLANS (ADMIN) ---
 @admin_router.callback_query(F.data == "admin_vip_plans")
