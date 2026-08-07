@@ -8,13 +8,13 @@ from app.database import (
     get_or_create_user, get_movie_by_code, get_all_movies, get_movie_count,
     get_setting, search_movies_db, increment_search_count, get_user,
     get_series_by_code, search_series_db, increment_series_search_count, get_vip_plans,
-    get_combined_catalog, increment_daily_search
+    get_combined_catalog, increment_daily_search, get_all_series, get_series_count
 )
 from app.keyboards import (
     get_main_keyboard, get_join_channels_keyboard,
     get_movie_list_keyboard, get_share_keyboard,
     get_user_vip_plans_keyboard, get_series_seasons_keyboard,
-    get_series_season_episodes_keyboard
+    get_series_season_episodes_keyboard, get_series_list_keyboard
 )
 from app.utils import check_user_subscription, search_items_fuzzy
 
@@ -183,6 +183,26 @@ async def show_movies_menu(message: Message, bot: Bot, state: FSMContext):
     await message.answer(
         "🎬 **Kinolar Katalogi**\n\nRo'yxatdan tanlang:",
         reply_markup=get_movie_list_keyboard(items, 1, total_pages)
+    )
+
+@user_router.message(F.text == "📺 Seriallar")
+async def show_series_menu(message: Message, bot: Bot, state: FSMContext):
+    is_subbed = await check_and_prompt_subscription(message, bot, state)
+    if not is_subbed:
+        return
+        
+    limit = 10
+    items = await get_all_series(offset=0, limit=limit)
+    total_count = await get_series_count()
+    total_pages = (total_count + limit - 1) // limit
+    
+    if not items:
+        await message.answer("Hozircha seriallar mavjud emas.")
+        return
+        
+    await message.answer(
+        "📺 **Seriallar Katalogi**\n\nRo'yxatdan tanlang:",
+        reply_markup=get_series_list_keyboard(items, 1, total_pages)
     )
 
 @user_router.message(F.text == "⭐ VIP")

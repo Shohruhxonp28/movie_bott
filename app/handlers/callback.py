@@ -5,11 +5,12 @@ from aiogram.fsm.context import FSMContext
 from app.database import (
     get_movie_by_code, get_all_movies, get_movie_count, get_setting,
     get_or_create_user, get_series_by_code, increment_series_search_count, get_vip_plans,
-    get_combined_catalog
+    get_combined_catalog, get_all_series, get_series_count
 )
 from app.keyboards import (
     get_movie_list_keyboard, get_receipt_approval_keyboard,
-    get_main_keyboard, get_join_channels_keyboard, get_user_vip_plans_keyboard
+    get_main_keyboard, get_join_channels_keyboard, get_user_vip_plans_keyboard,
+    get_series_list_keyboard
 )
 from app.utils import check_user_subscription
 from app.states import VIPState
@@ -304,6 +305,36 @@ async def process_movie_page(callback: CallbackQuery, bot: Bot, state: FSMContex
     await callback.message.edit_text(
         "🎬 **Kinolar Katalogi**\n\nRo'yxatdan tanlang:",
         reply_markup=get_movie_list_keyboard(items, page, total_pages)
+    )
+    await callback.answer()
+
+@callback_router.callback_query(F.data.startswith("series_page_"))
+async def process_series_page(callback: CallbackQuery, bot: Bot, state: FSMContext):
+    user_id = callback.from_user.id
+    is_subscribed = await check_user_subscription(bot, user_id)
+    
+    if not is_subscribed:
+        from app.database import get_required_channels
+        channels = await get_required_channels()
+        await callback.message.answer(
+            "⚠️ **Ruxsat berilmadi!**\n\n"
+            "Seriallar ro'yxatini ko'rish uchun avval homiy kanallarimizga a'zo bo'lishingiz kerak.",
+            reply_markup=get_join_channels_keyboard(channels)
+        )
+        await callback.answer()
+        return
+        
+    page = int(callback.data.replace("series_page_", ""))
+    limit = 10
+    offset = (page - 1) * limit
+    
+    items = await get_all_series(offset=offset, limit=limit)
+    total_count = await get_series_count()
+    total_pages = (total_count + limit - 1) // limit
+    
+    await callback.message.edit_text(
+        "📺 **Seriallar Katalogi**\n\nRo'yxatdan tanlang:",
+        reply_markup=get_series_list_keyboard(items, page, total_pages)
     )
     await callback.answer()
 

@@ -6,8 +6,10 @@ from app.models import Movie, RequiredChannel, Series, User, VipPlan
 def get_main_keyboard() -> ReplyKeyboardMarkup:
     builder = ReplyKeyboardBuilder()
     builder.add(KeyboardButton(text="🎬 Kinolar"))
+    builder.add(KeyboardButton(text="📺 Seriallar"))
     builder.add(KeyboardButton(text="⭐ VIP"))
     builder.add(KeyboardButton(text="ℹ️ Yordam"))
+    builder.adjust(2)
     return builder.as_markup(resize_keyboard=True)
 
 def get_join_channels_keyboard(channels: List[RequiredChannel]) -> InlineKeyboardMarkup:
@@ -364,5 +366,23 @@ def get_admin_edit_texts_keyboard() -> InlineKeyboardMarkup:
     builder.row(InlineKeyboardButton(text="ℹ️ Yordam xabari", callback_data="admin_edit_text_help_message"))
     builder.row(InlineKeyboardButton(text="⭐ VIP xabari", callback_data="admin_edit_text_vip_message"))
     builder.row(InlineKeyboardButton(text="🔙 Orqaga", callback_data="admin_back"))
+    return builder.as_markup()
+
+
+def get_series_list_keyboard(items: List[Series], page: int, total_pages: int) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    for item in items:
+        builder.row(InlineKeyboardButton(text=f"📺 {item.title} [{item.series_code}]", callback_data=f"view_series_user_{item.series_code}"))
+    
+    nav_buttons = []
+    if page > 1:
+        nav_buttons.append(InlineKeyboardButton(text="⬅️ Oldingi", callback_data=f"series_page_{page-1}"))
+    if page < total_pages:
+        nav_buttons.append(InlineKeyboardButton(text="Keyingi ➡️", callback_data=f"series_page_{page+1}"))
+        
+    if nav_buttons:
+        builder.row(*nav_buttons)
+        
+    builder.row(InlineKeyboardButton(text="❌ Yopish", callback_data="close_movies"))
     return builder.as_markup()
 

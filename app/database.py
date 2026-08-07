@@ -218,13 +218,12 @@ async def add_series_episode(series_code: int, episode_number: int, channel_id: 
                 file_id=file_id
             )
             session.add(ep)
-            await session.commit()
+            await session.flush()
             
             # Update episodes count dynamically
             result = await session.execute(select(func.count(SeriesEpisode.id)).where(SeriesEpisode.series_code == series_code))
             cnt = result.scalar() or 0
             await session.execute(update(Series).where(Series.series_code == series_code).values(episodes_count=cnt))
-            await session.commit()
             return ep
 
 async def delete_series_episode(episode_id: int) -> bool:
@@ -235,13 +234,12 @@ async def delete_series_episode(episode_id: int) -> bool:
             if ep:
                 series_code = ep.series_code
                 await session.delete(ep)
-                await session.commit()
+                await session.flush()
                 
                 # Update episodes count dynamically
                 cnt_res = await session.execute(select(func.count(SeriesEpisode.id)).where(SeriesEpisode.series_code == series_code))
                 cnt = cnt_res.scalar() or 0
                 await session.execute(update(Series).where(Series.series_code == series_code).values(episodes_count=cnt))
-                await session.commit()
                 return True
             return False
 
