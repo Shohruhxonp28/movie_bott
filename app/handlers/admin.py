@@ -19,7 +19,7 @@ from app.database import (
     get_vip_plans, add_vip_plan, delete_vip_plan, remove_user_vip, get_user,
     is_admin_db, add_admin_user, delete_admin_user, get_all_admins,
     replace_series_episode_file, delete_series_episode, toggle_movie_vip,
-    toggle_series_vip
+    toggle_series_vip, get_user_ids_by_target
 )
 from app.keyboards import (
     get_admin_panel, get_admin_channels_keyboard, get_admin_movies_keyboard,
@@ -29,7 +29,8 @@ from app.keyboards import (
     get_admin_vip_keyboard, get_admin_vip_user_manage_keyboard,
     get_admin_manual_vip_plans_keyboard, get_admin_seasons_keyboard,
     get_admin_season_episodes_keyboard, get_admin_episode_detail_keyboard,
-    get_admin_manage_admins_keyboard, get_admin_edit_texts_keyboard
+    get_admin_manage_admins_keyboard, get_admin_edit_texts_keyboard,
+    get_broadcast_target_keyboard
 )
 
 logger = logging.getLogger(__name__)
@@ -144,8 +145,31 @@ async def delete_channel_action(callback: CallbackQuery):
 async def broadcast_prompt(callback: CallbackQuery, state: FSMContext):
     if not is_admin_callback(callback):
         return
+    await callback.message.edit_text(
+        "📢 **Reklama tarqatish**\n\nQaysi foydalanuvchilarga reklama yubormoqchisiz? Tanlang:",
+        reply_markup=get_broadcast_target_keyboard()
+    )
+    await callback.answer()
+
+@admin_router.callback_query(F.data.startswith("broadcast_target_"))
+async def broadcast_target_selected(callback: CallbackQuery, state: FSMContext):
+    if not is_admin_callback(callback):
+        return
+    target = callback.data.replace("broadcast_target_", "")
+    await state.update_data(broadcast_target=target)
     await state.set_state(AdminState.waiting_for_broadcast)
-    await callback.message.edit_text("📢 Barcha foydalanuvchilarga yubormoqchi bo'lgan xabaringizni yuboring (matn, rasm, video va h.k.):")
+    
+    target_names = {
+        "all": "👥 Barcha foydalanuvchilar",
+        "vip": "⭐ Faqat VIP foydalanuvchilar",
+        "oddiy": "👤 Faqat Oddiy foydalanuvchilar"
+    }
+    t_name = target_names.get(target, "👥 Barcha foydalanuvchilar")
+    
+    await callback.message.edit_text(
+        f"🎯 **Tanlangan auditoriya:** {t_name}\n\n"
+        "📢 Iltimos, yubormoqchi bo'lgan xabaringizni yuboring (matn, rasm, video va h.k.):"
+    )
     await callback.answer()
 
 @admin_router.message(AdminState.waiting_for_broadcast)
@@ -156,7 +180,20 @@ async def broadcast_confirm(message: Message, state: FSMContext):
         broadcast_msg_id=message.message_id,
         broadcast_chat_id=message.chat.id
     )
-    await message.answer("❓ Haqiqatan ham ushbu xabarni barcha foydalanuvchilarga yuborishni tasdiqlaysizmi?", reply_markup=get_broadcast_confirm_keyboard())
+    data = await state.get_data()
+    target = data.get("broadcast_target", "all")
+    
+    target_names = {
+        "all": "barcha foydalanuvchilarga",
+        "vip": "faqat VIP foydalanuvchilarga",
+        "oddiy": "faqat oddiy foydalanuvchilarga"
+    }
+    t_name = target_names.get(target, "barcha foydalanuvchilarga")
+    
+    await message.answer(
+        f"❓ Haqiqatan ham ushbu xabarni **{t_name}** yuborishni tasdiqlaysizmi?",
+        reply_markup=get_broadcast_confirm_keyboard()
+    )
 
 @admin_router.callback_query(F.data == "admin_confirm_broadcast")
 async def start_broadcast(callback: CallbackQuery, state: FSMContext, bot: Bot):
@@ -165,6 +202,7 @@ async def start_broadcast(callback: CallbackQuery, state: FSMContext, bot: Bot):
     data = await state.get_data()
     msg_id = data.get("broadcast_msg_id")
     chat_id = data.get("broadcast_chat_id")
+    target = data.get("broadcast_target", "all")
     
     if not msg_id or not chat_id:
         await callback.answer("❌ Reklama tafsilotlari topilmadi. Qayta urinib ko'ring.", show_alert=True)
@@ -174,8 +212,7 @@ async def start_broadcast(callback: CallbackQuery, state: FSMContext, bot: Bot):
     await callback.answer("🚀 Reklama yuborilmoqda...")
     await callback.message.edit_text("📤 Yuborish jarayoni boshlandi...")
     
-    stats = await get_statistics()
-    user_ids = stats.get("all_user_ids", [])
+    user_ids = await get_user_ids_by_target(target)
     
     success_count = 0
     fail_count = 0
@@ -187,10 +224,18 @@ async def start_broadcast(callback: CallbackQuery, state: FSMContext, bot: Bot):
         except Exception:
             fail_count += 1
             
+    target_titles = {
+        "all": "Barcha foydalanuvchilar",
+        "vip": "Faqat VIP foydalanuvchilar",
+        "oddiy": "Faqat Oddiy foydalanuvchilar"
+    }
+    t_title = target_titles.get(target, "Barcha foydalanuvchilar")
+            
     await state.clear()
     await callback.message.answer(
         f"📢 **Reklama yuborish yakunlandi**\n\n"
-        f"👥 Jami foydalanuvchilar: {len(user_ids)} ta\n"
+        f"🎯 Auditoriya: {t_title}\n"
+        f"👥 Maqsadli foydalanuvchilar: {len(user_ids)} ta\n"
         f"✅ Muvaffaqiyatli yuborilganlar: {success_count} ta\n"
         f"❌ Yuborilmaganlar (botni bloklaganlar): {fail_count} ta",
         reply_markup=get_admin_panel()

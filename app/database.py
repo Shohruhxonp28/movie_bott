@@ -526,3 +526,16 @@ async def toggle_series_vip(code: int) -> Optional[bool]:
                 return val
             return None
 
+async def get_user_ids_by_target(target: str) -> List[int]:
+    async with AsyncSessionLocal() as session:
+        now = datetime.datetime.utcnow()
+        if target == "vip":
+            query = select(User.id).where(User.vip_until > now)
+        elif target == "oddiy":
+            query = select(User.id).where((User.vip_until == None) | (User.vip_until <= now))
+        else:
+            query = select(User.id)
+            
+        result = await session.execute(query)
+        return list(result.scalars().all())
+

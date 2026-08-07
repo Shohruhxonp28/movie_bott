@@ -178,6 +178,14 @@ def get_movie_detail_keyboard(code: int, is_vip: bool = False) -> InlineKeyboard
     )
     return builder.as_markup()
 
+def get_broadcast_target_keyboard() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.row(InlineKeyboardButton(text="👥 Barcha foydalanuvchilar", callback_data="broadcast_target_all"))
+    builder.row(InlineKeyboardButton(text="⭐ Faqat VIP foydalanuvchilar", callback_data="broadcast_target_vip"))
+    builder.row(InlineKeyboardButton(text="👤 Faqat Oddiy foydalanuvchilar", callback_data="broadcast_target_oddiy"))
+    builder.row(InlineKeyboardButton(text="🔙 Bekor qilish", callback_data="admin_back"))
+    return builder.as_markup()
+
 def get_broadcast_confirm_keyboard() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.row(
