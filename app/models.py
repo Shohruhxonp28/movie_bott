@@ -30,6 +30,7 @@ class Movie(Base):
     message_id: Mapped[int] = mapped_column(Integer)
     file_id: Mapped[str] = mapped_column(String(500))
     search_count: Mapped[int] = mapped_column(Integer, default=0)
+    is_vip: Mapped[bool] = mapped_column(Boolean, default=False)
 
 class Series(Base):
     __tablename__ = "series"
@@ -39,6 +40,7 @@ class Series(Base):
     channel_link: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     episodes_count: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     search_count: Mapped[int] = mapped_column(Integer, default=0)
+    is_vip: Mapped[bool] = mapped_column(Boolean, default=False)
 
     episodes = relationship("SeriesEpisode", back_populates="series", cascade="all, delete-orphan", lazy="selectin")
 

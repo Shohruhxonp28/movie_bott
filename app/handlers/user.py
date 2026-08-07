@@ -84,6 +84,10 @@ async def check_and_prompt_subscription(message: Message, bot: Bot, state: FSMCo
     Checks subscription and sends prompt if not subscribed.
     Saves pending movie code in state to send after subscription is verified.
     """
+    user = await get_or_create_user(message.from_user.id, message.from_user.username, message.from_user.full_name)
+    if user.is_vip:
+        return True
+
     is_subscribed = await check_user_subscription(bot, message.from_user.id)
     if is_subscribed:
         return True
@@ -143,12 +147,20 @@ async def cmd_start(message: Message, command: CommandObject, state: FSMContext,
             if pending_code >= 1000:
                 series = await get_series_by_code(pending_code)
                 if series:
+                    if series.is_vip and not user.is_vip:
+                        plans = await get_vip_plans()
+                        await message.answer("⚠️ **Ushbu serial faqat VIP foydalanuvchilar uchun!**\n\nUshbu serialni ko'rish uchun VIP obuna bo'lishingiz zarur. Rejalardan birini tanlang:", reply_markup=get_user_vip_plans_keyboard(plans))
+                        return
                     await send_series_to_user(bot, message.chat.id, series, bot_username)
                 else:
                     await message.answer("Serial topilmadi.")
             else:
                 movie = await get_movie_by_code(pending_code)
                 if movie:
+                    if movie.is_vip and not user.is_vip:
+                        plans = await get_vip_plans()
+                        await message.answer("⚠️ **Ushbu kino faqat VIP foydalanuvchilar uchun!**\n\nUshbu kinoni ko'rish uchun VIP obuna bo'lishingiz zarur. Rejalardan birini tanlang:", reply_markup=get_user_vip_plans_keyboard(plans))
+                        return
                     await send_movie_to_user(bot, message.chat.id, movie, bot_username)
                 else:
                     await message.answer("Kino topilmadi.")
@@ -251,15 +263,24 @@ async def process_search(message: Message, bot: Bot, state: FSMContext):
     
     if query.isdigit():
         code = int(query)
+        user = await get_or_create_user(message.from_user.id, message.from_user.username, message.from_user.full_name)
         if code >= 1000:
             series = await get_series_by_code(code)
             if series:
+                if series.is_vip and not user.is_vip:
+                    plans = await get_vip_plans()
+                    await message.answer("⚠️ **Ushbu serial faqat VIP foydalanuvchilar uchun!**\n\nUshbu serialni ko'rish uchun VIP obuna bo'lishingiz zarur. Rejalardan birini tanlang:", reply_markup=get_user_vip_plans_keyboard(plans))
+                    return
                 await send_series_to_user(bot, message.chat.id, series, bot_username)
             else:
                 await message.answer("Serial topilmadi.")
         else:
             movie = await get_movie_by_code(code)
             if movie:
+                if movie.is_vip and not user.is_vip:
+                    plans = await get_vip_plans()
+                    await message.answer("⚠️ **Ushbu kino faqat VIP foydalanuvchilar uchun!**\n\nUshbu kinoni ko'rish uchun VIP obuna bo'lishingiz zarur. Rejalardan birini tanlang:", reply_markup=get_user_vip_plans_keyboard(plans))
+                    return
                 await send_movie_to_user(bot, message.chat.id, movie, bot_username)
             else:
                 await message.answer("Kino topilmadi.")
@@ -275,29 +296,39 @@ async def process_search(message: Message, bot: Bot, state: FSMContext):
         await message.answer("Kino yoki serial topilmadi.")
         return
         
+    user = await get_or_create_user(message.from_user.id, message.from_user.username, message.from_user.full_name)
     if len(matches) == 1:
         match = matches[0]
         from app.models import Movie as MovieModel
         if isinstance(match, MovieModel):
+            if match.is_vip and not user.is_vip:
+                plans = await get_vip_plans()
+                await message.answer("⚠️ **Ushbu kino faqat VIP foydalanuvchilar uchun!**\n\nUshbu kinoni ko'rish uchun VIP obuna bo'lishingiz zarur. Rejalardan birini tanlang:", reply_markup=get_user_vip_plans_keyboard(plans))
+                return
             await send_movie_to_user(bot, message.chat.id, match, bot_username)
         else:
+            if match.is_vip and not user.is_vip:
+                plans = await get_vip_plans()
+                await message.answer("⚠️ **Ushbu serial faqat VIP foydalanuvchilar uchun!**\n\nUshbu serialni ko'rish uchun VIP obuna bo'lishingiz zarur. Rejalardan birini tanlang:", reply_markup=get_user_vip_plans_keyboard(plans))
+                return
             await send_series_to_user(bot, message.chat.id, match, bot_username)
     else:
         from aiogram.utils.keyboard import InlineKeyboardBuilder
         builder = InlineKeyboardBuilder()
         for item in matches:
             from app.models import Movie as MovieModel
+            is_vip_badge = " ⭐" if item.is_vip else ""
             if isinstance(item, MovieModel):
                 builder.row(
                     InlineKeyboardButton(
-                        text=f"🎬 {item.title} [{item.movie_code}]",
+                        text=f"🎬 {item.title}{is_vip_badge} [{item.movie_code}]",
                         callback_data=f"view_movie_user_{item.movie_code}"
                     )
                 )
             else:
                 builder.row(
                     InlineKeyboardButton(
-                        text=f"📺 {item.title} [{item.series_code}]",
+                        text=f"📺 {item.title}{is_vip_badge} [{item.series_code}]",
                         callback_data=f"view_series_user_{item.series_code}"
                     )
                 )

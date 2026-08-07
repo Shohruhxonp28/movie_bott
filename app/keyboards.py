@@ -81,10 +81,11 @@ def get_movie_list_keyboard(items: List[Any], page: int, total_pages: int) -> In
     builder = InlineKeyboardBuilder()
     for item in items:
         # Check if item is Movie or Series dynamically using attributes
+        is_vip_badge = " ⭐" if getattr(item, "is_vip", False) else ""
         if hasattr(item, "movie_code"):
-            builder.row(InlineKeyboardButton(text=f"🎬 {item.title} [{item.movie_code}]", callback_data=f"view_movie_user_{item.movie_code}"))
+            builder.row(InlineKeyboardButton(text=f"🎬 {item.title}{is_vip_badge} [{item.movie_code}]", callback_data=f"view_movie_user_{item.movie_code}"))
         else:
-            builder.row(InlineKeyboardButton(text=f"📺 {item.title} [{item.series_code}]", callback_data=f"view_series_user_{item.series_code}"))
+            builder.row(InlineKeyboardButton(text=f"📺 {item.title}{is_vip_badge} [{item.series_code}]", callback_data=f"view_series_user_{item.series_code}"))
     
     nav_buttons = []
     if page > 1:
@@ -145,7 +146,8 @@ def get_admin_channels_keyboard(channels: List[RequiredChannel]) -> InlineKeyboa
 def get_admin_movies_keyboard(movies: List[Movie], page: int, total_pages: int) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     for movie in movies:
-        builder.row(InlineKeyboardButton(text=f"🎬 {movie.title} [{movie.movie_code}]", callback_data=f"admin_movie_detail_{movie.movie_code}"))
+        is_vip_badge = " ⭐" if movie.is_vip else ""
+        builder.row(InlineKeyboardButton(text=f"🎬 {movie.title}{is_vip_badge} [{movie.movie_code}]", callback_data=f"admin_movie_detail_{movie.movie_code}"))
         
     nav_buttons = []
     if page > 1:
@@ -159,17 +161,21 @@ def get_admin_movies_keyboard(movies: List[Movie], page: int, total_pages: int) 
     builder.row(InlineKeyboardButton(text="🔙 Orqaga", callback_data="admin_back"))
     return builder.as_markup()
 
-def get_movie_detail_keyboard(code: int) -> InlineKeyboardMarkup:
+def get_movie_detail_keyboard(code: int, is_vip: bool = False) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.row(
         InlineKeyboardButton(text="👁️ Kinoni ko'rish", callback_data=f"admin_view_movie_file_{code}"),
         InlineKeyboardButton(text="✏️ Nomini o'zgartirish", callback_data=f"admin_rename_movie_{code}")
     )
+    vip_text = "🔓 VIP'dan chiqarish" if is_vip else "⭐ VIP qilish"
     builder.row(
-        InlineKeyboardButton(text="🔄 Faylni almashtirish", callback_data=f"admin_replace_movie_{code}"),
+        InlineKeyboardButton(text=vip_text, callback_data=f"admin_toggle_movie_vip_{code}"),
         InlineKeyboardButton(text="🗑️ O'chirish", callback_data=f"admin_delete_movie_{code}")
     )
-    builder.row(InlineKeyboardButton(text="🔙 Ro'yxatga qaytish", callback_data="admin_movies_page_1"))
+    builder.row(
+        InlineKeyboardButton(text="🔄 Faylni almashtirish", callback_data=f"admin_replace_movie_{code}"),
+        InlineKeyboardButton(text="🔙 Ro'yxatga qaytish", callback_data="admin_movies_page_1")
+    )
     return builder.as_markup()
 
 def get_broadcast_confirm_keyboard() -> InlineKeyboardMarkup:
@@ -247,7 +253,8 @@ def get_series_type_keyboard() -> InlineKeyboardMarkup:
 def get_admin_series_keyboard(series: List[Series], page: int, total_pages: int) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     for s in series:
-        builder.row(InlineKeyboardButton(text=f"📺 {s.title} [{s.series_code}]", callback_data=f"admin_series_detail_{s.series_code}"))
+        is_vip_badge = " ⭐" if s.is_vip else ""
+        builder.row(InlineKeyboardButton(text=f"📺 {s.title}{is_vip_badge} [{s.series_code}]", callback_data=f"admin_series_detail_{s.series_code}"))
     
     nav_buttons = []
     if page > 1:
@@ -261,17 +268,21 @@ def get_admin_series_keyboard(series: List[Series], page: int, total_pages: int)
     builder.row(InlineKeyboardButton(text="🔙 Orqaga", callback_data="admin_back"))
     return builder.as_markup()
 
-def get_series_detail_keyboard(code: int) -> InlineKeyboardMarkup:
+def get_series_detail_keyboard(code: int, is_vip: bool = False) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.row(
         InlineKeyboardButton(text="👁️ Serialni ko'rish", callback_data=f"admin_view_series_{code}"),
         InlineKeyboardButton(text="✏️ Nomini o'zgartirish", callback_data=f"admin_rename_series_{code}")
     )
+    vip_text = "🔓 VIP'dan chiqarish" if is_vip else "⭐ VIP qilish"
     builder.row(
         InlineKeyboardButton(text="📁 Qismlarni boshqarish", callback_data=f"admin_series_manage_episodes_{code}"),
-        InlineKeyboardButton(text="🗑️ O'chirish", callback_data=f"admin_delete_series_{code}")
+        InlineKeyboardButton(text=vip_text, callback_data=f"admin_toggle_series_vip_{code}")
     )
-    builder.row(InlineKeyboardButton(text="🔙 Ro'yxatga qaytish", callback_data="admin_series_page_1"))
+    builder.row(
+        InlineKeyboardButton(text="🗑️ O'chirish", callback_data=f"admin_delete_series_{code}"),
+        InlineKeyboardButton(text="🔙 Ro'yxatga qaytish", callback_data="admin_series_page_1")
+    )
     return builder.as_markup()
 
 def get_admin_seasons_keyboard(series_code: int, seasons: List[int]) -> InlineKeyboardMarkup:
@@ -372,7 +383,8 @@ def get_admin_edit_texts_keyboard() -> InlineKeyboardMarkup:
 def get_series_list_keyboard(items: List[Series], page: int, total_pages: int) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     for item in items:
-        builder.row(InlineKeyboardButton(text=f"📺 {item.title} [{item.series_code}]", callback_data=f"view_series_user_{item.series_code}"))
+        is_vip_badge = " ⭐" if getattr(item, "is_vip", False) else ""
+        builder.row(InlineKeyboardButton(text=f"📺 {item.title}{is_vip_badge} [{item.series_code}]", callback_data=f"view_series_user_{item.series_code}"))
     
     nav_buttons = []
     if page > 1:

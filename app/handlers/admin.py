@@ -18,7 +18,8 @@ from app.database import (
     get_series_by_code, rename_series, delete_series, get_active_vip_users,
     get_vip_plans, add_vip_plan, delete_vip_plan, remove_user_vip, get_user,
     is_admin_db, add_admin_user, delete_admin_user, get_all_admins,
-    replace_series_episode_file, delete_series_episode
+    replace_series_episode_file, delete_series_episode, toggle_movie_vip,
+    toggle_series_vip
 )
 from app.keyboards import (
     get_admin_panel, get_admin_channels_keyboard, get_admin_movies_keyboard,
@@ -291,14 +292,38 @@ async def admin_movie_detail(callback: CallbackQuery):
         await callback.answer("❌ Kino topilmadi.", show_alert=True)
         return
         
+    vip_status = "Ha ⭐" if movie.is_vip else "Yo'q"
     await callback.message.edit_text(
         f"🎬 **Kino tafsilotlari**\n\n"
         f"🆔 Kodi: `{movie.movie_code}`\n"
         f"📌 Nomi: {movie.title}\n"
-        f"👁️ Qidiruvlar soni: {movie.search_count}",
-        reply_markup=get_movie_detail_keyboard(code)
+        f"👁️ Qidiruvlar soni: {movie.search_count}\n"
+        f"⭐ VIP: {vip_status}",
+        reply_markup=get_movie_detail_keyboard(code, is_vip=movie.is_vip)
     )
     await callback.answer()
+
+@admin_router.callback_query(F.data.startswith("admin_toggle_movie_vip_"))
+async def admin_toggle_movie_vip_handler(callback: CallbackQuery):
+    if not is_admin_callback(callback):
+        return
+    code = int(callback.data.replace("admin_toggle_movie_vip_", ""))
+    new_status = await toggle_movie_vip(code)
+    if new_status is None:
+        await callback.answer("❌ Kino topilmadi.", show_alert=True)
+        return
+    
+    movie = await get_movie_by_code(code)
+    vip_status = "Ha ⭐" if movie.is_vip else "Yo'q"
+    await callback.message.edit_text(
+        f"🎬 **Kino tafsilotlari**\n\n"
+        f"🆔 Kodi: `{movie.movie_code}`\n"
+        f"📌 Nomi: {movie.title}\n"
+        f"👁️ Qidiruvlar soni: {movie.search_count}\n"
+        f"⭐ VIP: {vip_status}",
+        reply_markup=get_movie_detail_keyboard(code, is_vip=movie.is_vip)
+    )
+    await callback.answer("✅ VIP holati o'zgartirildi.")
 
 @admin_router.callback_query(F.data.startswith("admin_view_movie_file_"))
 async def admin_view_movie_file(callback: CallbackQuery, bot: Bot):
@@ -833,18 +858,46 @@ async def admin_series_detail(callback: CallbackQuery):
         await callback.answer("❌ Serial topilmadi.", show_alert=True)
         return
         
+    vip_status = "Ha ⭐" if series.is_vip else "Yo'q"
     info = f"📺 **Serial tafsilotlari**\n\n" \
            f"🆔 Kodi: `{series.series_code}`\n" \
            f"📌 Nomi: {series.title}\n" \
-           f"👁️ Qidiruvlar soni: {series.search_count}\n"
+           f"👁️ Qidiruvlar soni: {series.search_count}\n" \
+           f"⭐ VIP: {vip_status}\n"
     
     if series.channel_link:
         info += f"🔗 Havola: {series.channel_link}"
     else:
         info += f"📁 Qismlar soni: {series.episodes_count}"
         
-    await callback.message.edit_text(info, reply_markup=get_series_detail_keyboard(code))
+    await callback.message.edit_text(info, reply_markup=get_series_detail_keyboard(code, is_vip=series.is_vip))
     await callback.answer()
+
+@admin_router.callback_query(F.data.startswith("admin_toggle_series_vip_"))
+async def admin_toggle_series_vip_handler(callback: CallbackQuery):
+    if not is_admin_callback(callback):
+        return
+    code = int(callback.data.replace("admin_toggle_series_vip_", ""))
+    new_status = await toggle_series_vip(code)
+    if new_status is None:
+        await callback.answer("❌ Serial topilmadi.", show_alert=True)
+        return
+    
+    series = await get_series_by_code(code)
+    vip_status = "Ha ⭐" if series.is_vip else "Yo'q"
+    info = f"📺 **Serial tafsilotlari**\n\n" \
+           f"🆔 Kodi: `{series.series_code}`\n" \
+           f"📌 Nomi: {series.title}\n" \
+           f"👁️ Qidiruvlar soni: {series.search_count}\n" \
+           f"⭐ VIP: {vip_status}\n"
+    
+    if series.channel_link:
+        info += f"🔗 Havola: {series.channel_link}"
+    else:
+        info += f"📁 Qismlar soni: {series.episodes_count}"
+        
+    await callback.message.edit_text(info, reply_markup=get_series_detail_keyboard(code, is_vip=series.is_vip))
+    await callback.answer("✅ VIP holati o'zgartirildi.")
 
 @admin_router.callback_query(F.data.startswith("admin_view_series_"))
 async def admin_view_series(callback: CallbackQuery, bot: Bot):

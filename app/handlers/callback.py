@@ -139,11 +139,26 @@ async def process_vip_receipt(message: Message, state: FSMContext, bot: Bot):
 @callback_router.callback_query(F.data.startswith("view_movie_user_"))
 async def process_view_movie_user(callback: CallbackQuery, bot: Bot, state: FSMContext):
     user_id = callback.from_user.id
-    is_subscribed = await check_user_subscription(bot, user_id)
     
     code = int(callback.data.replace("view_movie_user_", ""))
-    
-    if not is_subscribed:
+    movie = await get_movie_by_code(code)
+    if not movie:
+        await callback.answer("❌ Kino topilmadi.", show_alert=True)
+        return
+        
+    user = await get_or_create_user(user_id, callback.from_user.username, callback.from_user.full_name)
+    if movie.is_vip and not user.is_vip:
+        plans = await get_vip_plans()
+        await callback.message.answer(
+            "⚠️ **Ushbu kino faqat VIP foydalanuvchilar uchun!**\n\n"
+            "Ushbu kinoni ko'rish uchun VIP obuna bo'lishingiz zarur. Rejalardan birini tanlang:",
+            reply_markup=get_user_vip_plans_keyboard(plans)
+        )
+        await callback.answer()
+        return
+
+    is_subscribed = await check_user_subscription(bot, user_id)
+    if not user.is_vip and not is_subscribed:
         await state.update_data(pending_movie_code=code)
         from app.database import get_required_channels
         channels = await get_required_channels()
@@ -154,11 +169,6 @@ async def process_view_movie_user(callback: CallbackQuery, bot: Bot, state: FSMC
             reply_markup=get_join_channels_keyboard(channels)
         )
         await callback.answer()
-        return
-        
-    movie = await get_movie_by_code(code)
-    if not movie:
-        await callback.answer("❌ Kino topilmadi.", show_alert=True)
         return
         
     bot_info = await bot.get_me()
@@ -175,11 +185,26 @@ async def process_view_movie_user(callback: CallbackQuery, bot: Bot, state: FSMC
 @callback_router.callback_query(F.data.startswith("view_series_user_"))
 async def process_view_series_user(callback: CallbackQuery, bot: Bot, state: FSMContext):
     user_id = callback.from_user.id
-    is_subscribed = await check_user_subscription(bot, user_id)
     
     code = int(callback.data.replace("view_series_user_", ""))
-    
-    if not is_subscribed:
+    series = await get_series_by_code(code)
+    if not series:
+        await callback.answer("❌ Serial topilmadi.", show_alert=True)
+        return
+        
+    user = await get_or_create_user(user_id, callback.from_user.username, callback.from_user.full_name)
+    if series.is_vip and not user.is_vip:
+        plans = await get_vip_plans()
+        await callback.message.answer(
+            "⚠️ **Ushbu serial faqat VIP foydalanuvchilar uchun!**\n\n"
+            "Ushbu serialni ko'rish uchun VIP obuna bo'lishingiz zarur. Rejalardan birini tanlang:",
+            reply_markup=get_user_vip_plans_keyboard(plans)
+        )
+        await callback.answer()
+        return
+
+    is_subscribed = await check_user_subscription(bot, user_id)
+    if not user.is_vip and not is_subscribed:
         await state.update_data(pending_movie_code=code)
         from app.database import get_required_channels
         channels = await get_required_channels()
@@ -190,11 +215,6 @@ async def process_view_series_user(callback: CallbackQuery, bot: Bot, state: FSM
             reply_markup=get_join_channels_keyboard(channels)
         )
         await callback.answer()
-        return
-        
-    series = await get_series_by_code(code)
-    if not series:
-        await callback.answer("❌ Serial topilmadi.", show_alert=True)
         return
         
     bot_info = await bot.get_me()
@@ -210,12 +230,6 @@ async def process_view_series_user(callback: CallbackQuery, bot: Bot, state: FSM
 @callback_router.callback_query(F.data.startswith("view_episode_"))
 async def process_view_episode(callback: CallbackQuery, bot: Bot):
     user_id = callback.from_user.id
-    is_subscribed = await check_user_subscription(bot, user_id)
-    
-    if not is_subscribed:
-        await callback.answer("⚠️ Avval homiy kanallarga a'zo bo'ling!", show_alert=True)
-        return
-        
     parts = callback.data.replace("view_episode_", "").split("_")
     series_code = int(parts[0])
     episode_number = int(parts[1])
@@ -224,6 +238,18 @@ async def process_view_episode(callback: CallbackQuery, bot: Bot):
     series = await get_series_by_code(series_code)
     if not series:
         await callback.answer("❌ Serial topilmadi.", show_alert=True)
+        return
+        
+    user = await get_or_create_user(user_id, callback.from_user.username, callback.from_user.full_name)
+    if series.is_vip and not user.is_vip:
+        plans = await get_vip_plans()
+        await callback.message.answer("⚠️ **Ushbu serial faqat VIP foydalanuvchilar uchun!**", reply_markup=get_user_vip_plans_keyboard(plans))
+        await callback.answer()
+        return
+
+    is_subscribed = await check_user_subscription(bot, user_id)
+    if not user.is_vip and not is_subscribed:
+        await callback.answer("⚠️ Avval homiy kanallarga a'zo bo'ling!", show_alert=True)
         return
         
     episode = None
@@ -254,12 +280,6 @@ async def process_view_episode(callback: CallbackQuery, bot: Bot):
 @callback_router.callback_query(F.data.startswith("view_season_"))
 async def process_view_season(callback: CallbackQuery, bot: Bot):
     user_id = callback.from_user.id
-    is_subscribed = await check_user_subscription(bot, user_id)
-    
-    if not is_subscribed:
-        await callback.answer("⚠️ Avval homiy kanallarga a'zo bo'ling!", show_alert=True)
-        return
-        
     parts = callback.data.replace("view_season_", "").split("_")
     series_code = int(parts[0])
     season_number = int(parts[1])
@@ -267,6 +287,18 @@ async def process_view_season(callback: CallbackQuery, bot: Bot):
     series = await get_series_by_code(series_code)
     if not series:
         await callback.answer("❌ Serial topilmadi.", show_alert=True)
+        return
+        
+    user = await get_or_create_user(user_id, callback.from_user.username, callback.from_user.full_name)
+    if series.is_vip and not user.is_vip:
+        plans = await get_vip_plans()
+        await callback.message.answer("⚠️ **Ushbu serial faqat VIP foydalanuvchilar uchun!**", reply_markup=get_user_vip_plans_keyboard(plans))
+        await callback.answer()
+        return
+
+    is_subscribed = await check_user_subscription(bot, user_id)
+    if not user.is_vip and not is_subscribed:
+        await callback.answer("⚠️ Avval homiy kanallarga a'zo bo'ling!", show_alert=True)
         return
         
     season_episodes = [ep for ep in series.episodes if (ep.season_number or 1) == season_number]

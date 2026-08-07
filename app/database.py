@@ -20,6 +20,8 @@ async def init_db():
         await conn.run_sync(Base.metadata.create_all)
         try:
             await conn.execute(text("ALTER TABLE series_episodes ADD COLUMN IF NOT EXISTS season_number INTEGER DEFAULT 1;"))
+            await conn.execute(text("ALTER TABLE movies ADD COLUMN IF NOT EXISTS is_vip BOOLEAN DEFAULT FALSE;"))
+            await conn.execute(text("ALTER TABLE series ADD COLUMN IF NOT EXISTS is_vip BOOLEAN DEFAULT FALSE;"))
         except Exception as e:
             logger.error(f"Migration error: {e}")
         
@@ -499,4 +501,28 @@ async def get_statistics() -> Dict[str, Any]:
             "today_searches": today_searches,
             "all_user_ids": all_user_ids
         }
+
+async def toggle_movie_vip(code: int) -> Optional[bool]:
+    async with AsyncSessionLocal() as session:
+        async with session.begin():
+            result = await session.execute(select(Movie).where(Movie.movie_code == code))
+            movie = result.scalars().first()
+            if movie:
+                movie.is_vip = not movie.is_vip
+                val = movie.is_vip
+                await session.commit()
+                return val
+            return None
+
+async def toggle_series_vip(code: int) -> Optional[bool]:
+    async with AsyncSessionLocal() as session:
+        async with session.begin():
+            result = await session.execute(select(Series).where(Series.series_code == code))
+            series = result.scalars().first()
+            if series:
+                series.is_vip = not series.is_vip
+                val = series.is_vip
+                await session.commit()
+                return val
+            return None
 
