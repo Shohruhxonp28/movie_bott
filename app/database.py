@@ -1,4 +1,5 @@
 import datetime
+import logging
 from typing import Optional, List, Dict, Any, Tuple
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from sqlalchemy import select, update, delete, func, text
@@ -13,6 +14,7 @@ engine = create_async_engine(DATABASE_URL, echo=False)
 AsyncSessionLocal = async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
 
 DB_ADMIN_IDS = set()
+logger = logging.getLogger(__name__)
 
 async def init_db():
     async with engine.begin() as conn:
@@ -24,6 +26,11 @@ async def init_db():
             await conn.execute(text("ALTER TABLE series ADD COLUMN IF NOT EXISTS is_vip BOOLEAN DEFAULT FALSE;"))
         except Exception as e:
             logger.error(f"Migration error: {e}")
+            
+        try:
+            await conn.execute(text("ALTER TABLE users ADD COLUMN is_active BOOLEAN DEFAULT 1;"))
+        except Exception:
+            pass
         
     # Seed default plans if empty
     async with AsyncSessionLocal() as session:
