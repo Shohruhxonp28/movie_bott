@@ -28,7 +28,7 @@ async def init_db():
             logger.error(f"Migration error: {e}")
             
         try:
-            await conn.execute(text("ALTER TABLE users ADD COLUMN is_active BOOLEAN DEFAULT 1;"))
+            await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE;"))
         except Exception:
             pass
         
