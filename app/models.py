@@ -14,6 +14,7 @@ class User(Base):
     full_name: Mapped[str] = mapped_column(String(255))
     vip_until: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.utcnow)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
     @property
     def is_vip(self) -> bool:
@@ -92,4 +93,12 @@ class DailySearch(Base):
 
     date: Mapped[datetime.date] = mapped_column(Date, primary_key=True)
     count: Mapped[int] = mapped_column(Integer, default=0)
+
+class JoinRequest(Base):
+    __tablename__ = "join_requests"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, index=True)
+    channel_id: Mapped[int] = mapped_column(BigInteger, index=True)
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.utcnow)
 

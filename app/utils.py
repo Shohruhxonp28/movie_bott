@@ -4,7 +4,7 @@ from aiogram import Bot
 from aiogram.exceptions import TelegramAPIError
 from rapidfuzz import process, fuzz
 from app.models import Movie, RequiredChannel, Series
-from app.database import get_required_channels, get_user
+from app.database import get_required_channels, get_user, has_join_request
 
 logger = logging.getLogger(__name__)
 
@@ -25,10 +25,14 @@ async def check_user_subscription(bot: Bot, user_id: int) -> bool:
         try:
             member = await bot.get_chat_member(chat_id=channel.channel_id, user_id=user_id)
             if member.status not in ["member", "administrator", "creator"]:
-                return False
+                # If they are not a member, check if they have a pending join request
+                if not await has_join_request(user_id, channel.channel_id):
+                    return False
         except TelegramAPIError as e:
-            logger.error(f"Error checking channel sub for channel {channel.channel_id} and user {user_id}: {e}")
-            return False
+            # If the bot is not admin or some other error, check join request just in case
+            if not await has_join_request(user_id, channel.channel_id):
+                logger.error(f"Error checking channel sub for channel {channel.channel_id} and user {user_id}: {e}")
+                return False
             
     return True
 

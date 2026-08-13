@@ -19,7 +19,7 @@ from app.database import (
     get_vip_plans, add_vip_plan, delete_vip_plan, remove_user_vip, get_user,
     is_admin_db, add_admin_user, delete_admin_user, get_all_admins,
     replace_series_episode_file, delete_series_episode, toggle_movie_vip,
-    toggle_series_vip, get_user_ids_by_target
+    toggle_series_vip, get_user_ids_by_target, get_top_10_movies
 )
 from app.keyboards import (
     get_admin_panel, get_admin_channels_keyboard, get_admin_movies_keyboard,
@@ -73,8 +73,17 @@ async def show_stats(callback: CallbackQuery):
         f"🔍 Jami qidiruvlar: {stats['searches']}\n"
         f"📅 Bugungi ro'yxatdan o'tganlar: {stats['today_users']}\n"
         f"📅 Oxirgi 30 kundagi yangi a'zolar: {stats['thirty_days_users']}\n"
-        f"🔍 Bugungi qidiruvlar: {stats['today_searches']}"
+        f"🔍 Bugungi qidiruvlar: {stats['today_searches']}\n"
+        f"🚫 Botni bloklaganlar: {stats.get('blocked_users', 0)}\n\n"
+        "🏆 **Top 10 Eng Ko'p Qidirilgan Filmlar:**\n"
     )
+    
+    top_movies = await get_top_10_movies()
+    if top_movies:
+        for idx, m in enumerate(top_movies, 1):
+            text += f"{idx}. {m.title} [{m.movie_code}] - {m.search_count} marta\n"
+    else:
+        text += "Hozircha ma'lumot yo'q.\n"
     await callback.message.edit_text(text, reply_markup=get_admin_panel())
     await callback.answer()
 
@@ -173,13 +182,58 @@ async def broadcast_target_selected(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
 
 @admin_router.message(AdminState.waiting_for_broadcast)
-async def broadcast_confirm(message: Message, state: FSMContext):
+async def broadcast_receive_msg(message: Message, state: FSMContext):
     if not is_admin(message):
         return
     await state.update_data(
         broadcast_msg_id=message.message_id,
         broadcast_chat_id=message.chat.id
     )
+    
+    from aiogram.utils.keyboard import InlineKeyboardBuilder
+    builder = InlineKeyboardBuilder()
+    builder.button(text="➡️ O'tkazib yuborish", callback_data="broadcast_skip_button")
+    
+    await state.set_state(AdminState.waiting_for_broadcast_button)
+    await message.answer(
+        "✅ Xabar qabul qilindi.\n\n"
+        "Agar xabarga inline tugma (button) qo'shmoqchi bo'lsangiz, uni quyidagi formatda yuboring:\n"
+        "`Tugma nomi | https://silka.com`\n\n"
+        "Agar tugma qo'shish kerak bo'lmasa, **O'tkazib yuborish** tugmasini bosing.",
+        reply_markup=builder.as_markup()
+    )
+
+@admin_router.callback_query(F.data == "broadcast_skip_button")
+async def broadcast_skip_button(callback: CallbackQuery, state: FSMContext):
+    if not is_admin_callback(callback):
+        return
+    await callback.message.edit_text("Tugma qo'shilmaydi.")
+    await broadcast_confirm_prompt(callback.message, state)
+    await callback.answer()
+
+@admin_router.message(AdminState.waiting_for_broadcast_button)
+async def broadcast_receive_button(message: Message, state: FSMContext):
+    if not is_admin(message):
+        return
+    
+    text = message.text.strip()
+    if "|" not in text:
+        await message.answer("❌ Noto'g'ri format! Iltimos, `Tugma nomi | https://silka.com` shaklida yuboring yoki 'O'tkazib yuborish' tugmasini bosing.")
+        return
+        
+    parts = text.split("|", 1)
+    btn_text = parts[0].strip()
+    btn_url = parts[1].strip()
+    
+    if not (btn_url.startswith("http://") or btn_url.startswith("https://") or btn_url.startswith("t.me")):
+        await message.answer("❌ Noto'g'ri URL! Link http:// yoki https:// bilan boshlanishi kerak.")
+        return
+        
+    await state.update_data(broadcast_btn_text=btn_text, broadcast_btn_url=btn_url)
+    await message.answer(f"✅ Tugma qo'shildi: [{btn_text}]({btn_url})")
+    await broadcast_confirm_prompt(message, state)
+
+async def broadcast_confirm_prompt(message: Message, state: FSMContext):
     data = await state.get_data()
     target = data.get("broadcast_target", "all")
     
@@ -217,9 +271,24 @@ async def start_broadcast(callback: CallbackQuery, state: FSMContext, bot: Bot):
     success_count = 0
     fail_count = 0
     
+    btn_text = data.get("broadcast_btn_text")
+    btn_url = data.get("broadcast_btn_url")
+    
+    reply_markup = None
+    if btn_text and btn_url:
+        from aiogram.utils.keyboard import InlineKeyboardBuilder
+        builder = InlineKeyboardBuilder()
+        builder.button(text=btn_text, url=btn_url)
+        reply_markup = builder.as_markup()
+    
     for uid in user_ids:
         try:
-            await bot.copy_message(chat_id=uid, from_chat_id=chat_id, message_id=msg_id)
+            await bot.copy_message(
+                chat_id=uid, 
+                from_chat_id=chat_id, 
+                message_id=msg_id,
+                reply_markup=reply_markup
+            )
             success_count += 1
         except Exception:
             fail_count += 1
@@ -1344,3 +1413,114 @@ async def admin_series_add_ep_file(message: Message, state: FSMContext, bot: Bot
     except Exception as e:
         await message.answer(f"❌ Faylni saqlashda xatolik: {e}")
 
+# --- BULK UPLOAD EPISODES ---
+@admin_router.callback_query(F.data.startswith("admin_series_add_ep_bulk_"))
+async def admin_series_add_ep_bulk_prompt(callback: CallbackQuery, state: FSMContext):
+    if not is_admin_callback(callback):
+        return
+    code = int(callback.data.replace("admin_series_add_ep_bulk_", ""))
+    await state.set_state(ManageSeriesEpisodesState.waiting_for_bulk_season)
+    await state.update_data(add_ep_series_code=code)
+    await callback.message.edit_text("📅 Qismlar qaysi **fasl**ga tegishli? (Faqat raqam yozing, masalan: 1):")
+    await callback.answer()
+
+@admin_router.message(ManageSeriesEpisodesState.waiting_for_bulk_season)
+async def admin_series_add_ep_bulk_season(message: Message, state: FSMContext):
+    if not is_admin(message):
+        return
+    val = message.text.strip()
+    if not val.isdigit():
+        await message.answer("❌ Iltimos faqat raqam kiriting:")
+        return
+    await state.update_data(add_ep_season=int(val), bulk_episodes_list=[])
+    await state.set_state(ManageSeriesEpisodesState.waiting_for_bulk_files)
+    
+    from app.keyboards import get_bulk_finish_upload_keyboard
+    await message.answer(
+        "📁 Endi ushbu fasl uchun barcha qismlarni yuboring (fayllarni bittalab yoki guruhlab yuborishingiz mumkin).\n\n"
+        "Yuklashni tugatganingizdan so'ng **💾 Yuklashni yakunlash** tugmasini bosing:",
+        reply_markup=get_bulk_finish_upload_keyboard()
+    )
+
+@admin_router.message(ManageSeriesEpisodesState.waiting_for_bulk_files)
+async def admin_series_add_ep_bulk_files(message: Message, state: FSMContext, bot: Bot):
+    if not is_admin(message):
+        return
+        
+    file_id = None
+    if message.video:
+        file_id = message.video.file_id
+    elif message.document:
+        file_id = message.document.file_id
+    elif message.audio:
+        file_id = message.audio.file_id
+    elif message.animation:
+        file_id = message.animation.file_id
+    else:
+        await message.answer("❌ Iltimos, video, hujjat, audio yoki animatsiya fayli yuboring.")
+        return
+        
+    data = await state.get_data()
+    ep_list = data.get("bulk_episodes_list", [])
+    
+    try:
+        forwarded = await bot.forward_message(
+            chat_id=STORAGE_CHANNEL_ID,
+            from_chat_id=message.chat.id,
+            message_id=message.message_id
+        )
+        ep_list.append({
+            "channel_id": STORAGE_CHANNEL_ID,
+            "message_id": forwarded.message_id,
+            "file_id": file_id
+        })
+        await state.update_data(bulk_episodes_list=ep_list)
+        
+        from app.keyboards import get_bulk_finish_upload_keyboard
+        await message.answer(
+            f"✅ {len(ep_list)}-fayl qabul qilindi.\n"
+            "Yana yuborishingiz yoki yakunlashingiz mumkin:",
+            reply_markup=get_bulk_finish_upload_keyboard()
+        )
+    except Exception as e:
+        await message.answer(f"❌ Faylni saqlashda xatolik: {e}")
+
+@admin_router.callback_query(F.data == "series_bulk_finish_upload")
+async def admin_series_bulk_finish_upload(callback: CallbackQuery, state: FSMContext):
+    if not is_admin_callback(callback):
+        return
+    data = await state.get_data()
+    code = data.get("add_ep_series_code")
+    season = data.get("add_ep_season")
+    ep_list = data.get("bulk_episodes_list", [])
+    
+    if not ep_list:
+        await callback.answer("⚠️ Iltimos, avval kamida 1 ta qism yuklang!", show_alert=True)
+        return
+        
+    try:
+        series = await get_series_by_code(code)
+        # Find max episode number for this season
+        existing_eps = [ep.episode_number for ep in series.episodes if (ep.season_number or 1) == season]
+        next_ep_num = max(existing_eps) + 1 if existing_eps else 1
+        
+        for ep in ep_list:
+            await add_series_episode(
+                series_code=code,
+                season_number=season,
+                episode_number=next_ep_num,
+                channel_id=ep["channel_id"],
+                message_id=ep["message_id"],
+                file_id=ep["file_id"]
+            )
+            next_ep_num += 1
+            
+        await state.clear()
+        await callback.message.edit_text(
+            f"✅ {season}-faslga {len(ep_list)} ta qism muvaffaqiyatli qo'shildi!",
+            reply_markup=get_admin_panel()
+        )
+    except Exception as e:
+        logger.error(f"Error finishing bulk upload: {e}")
+        await callback.message.answer(f"❌ Qismlarni saqlashda xatolik: {e}")
+    await callback.answer()

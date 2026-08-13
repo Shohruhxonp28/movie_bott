@@ -26,6 +26,7 @@ class ManageVipUserState(StatesGroup):
 class AdminState(StatesGroup):
     waiting_for_card = State()
     waiting_for_broadcast = State()
+    waiting_for_broadcast_button = State()
     waiting_for_add_channel = State()
     waiting_for_rename_movie = State()
     waiting_for_replace_movie_file = State()
@@ -42,4 +43,6 @@ class ManageSeriesEpisodesState(StatesGroup):
     waiting_for_episode = State()
     waiting_for_file = State()
     waiting_for_replace_file = State()
+    waiting_for_bulk_season = State()
+    waiting_for_bulk_files = State()
 

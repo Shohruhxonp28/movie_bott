@@ -1,6 +1,7 @@
 import logging
 from aiogram import Router, F, Bot
-from aiogram.types import Message, InlineKeyboardButton
+from aiogram.types import Message, InlineKeyboardButton, ChatJoinRequest, ChatMemberUpdated
+from aiogram.filters import Command, CommandObject, IS_MEMBER, IS_NOT_MEMBER, chat_member_updated
 from aiogram.filters import Command, CommandObject
 from aiogram.fsm.context import FSMContext
 from app.config import ADMIN_IDS
@@ -8,7 +9,8 @@ from app.database import (
     get_or_create_user, get_movie_by_code, get_all_movies, get_movie_count,
     get_setting, search_movies_db, increment_search_count, get_user,
     get_series_by_code, search_series_db, increment_series_search_count, get_vip_plans,
-    get_combined_catalog, increment_daily_search, get_all_series, get_series_count
+    get_combined_catalog, increment_daily_search, get_all_series, get_series_count,
+    add_join_request, set_user_inactive
 )
 from app.keyboards import (
     get_main_keyboard, get_join_channels_keyboard,
@@ -20,6 +22,18 @@ from app.utils import check_user_subscription, search_items_fuzzy
 
 logger = logging.getLogger(__name__)
 user_router = Router()
+
+@user_router.chat_join_request()
+async def handle_join_request(update: ChatJoinRequest, bot: Bot):
+    await add_join_request(update.from_user.id, update.chat.id)
+    # Automatically approve the request so they can just use the bot (Optional, but user said "zayavka bob turganniyam obuna deb hisoblash"). We just save it in DB for now, which satisfies the condition.
+    # To be fully smooth we could approve:
+    # try: await update.approve() except Exception: pass
+
+@user_router.my_chat_member()
+async def handle_my_chat_member(update: ChatMemberUpdated):
+    if update.new_chat_member.status in ["kicked", "left"]:
+        await set_user_inactive(update.from_user.id)
 
 async def send_movie_to_user(bot: Bot, chat_id: int, movie, bot_username: str):
     """Utility to send movie to user using copyMessage and increment search counter."""

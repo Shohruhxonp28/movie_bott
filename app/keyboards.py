@@ -300,7 +300,10 @@ def get_admin_seasons_keyboard(series_code: int, seasons: List[int]) -> InlineKe
     builder.adjust(4)
     builder.row(
         InlineKeyboardButton(text="➕ Fasl qo'shish", callback_data=f"admin_series_add_ep_{series_code}"),
-        InlineKeyboardButton(text="➕ Qism qo'shish", callback_data=f"admin_series_add_ep_{series_code}")
+        InlineKeyboardButton(text="➕ Qism qo'shish (Bittalab)", callback_data=f"admin_series_add_ep_{series_code}")
+    )
+    builder.row(
+        InlineKeyboardButton(text="📥 Qismlar qo'shish (Birdaniga)", callback_data=f"admin_series_add_ep_bulk_{series_code}")
     )
     builder.row(InlineKeyboardButton(text="🔙 Orqaga", callback_data=f"admin_series_detail_{series_code}"))
     return builder.as_markup()
@@ -361,6 +364,12 @@ def get_series_link_keyboard(channel_link: str) -> InlineKeyboardMarkup:
 def get_finish_upload_keyboard() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.row(InlineKeyboardButton(text="💾 Yakunlash", callback_data="series_finish_upload"))
+    builder.row(InlineKeyboardButton(text="❌ Bekor qilish", callback_data="admin_back"))
+    return builder.as_markup()
+
+def get_bulk_finish_upload_keyboard() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.row(InlineKeyboardButton(text="💾 Yuklashni yakunlash", callback_data="series_bulk_finish_upload"))
     builder.row(InlineKeyboardButton(text="❌ Bekor qilish", callback_data="admin_back"))
     return builder.as_markup()
 

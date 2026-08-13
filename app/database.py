@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, Asyn
 from sqlalchemy import select, update, delete, func, text
 from sqlalchemy.orm import selectinload
 from app.config import DATABASE_URL
-from app.models import Base, User, Movie, RequiredChannel, Setting, Series, SeriesEpisode, VipPlan, AdminUser, DailySearch
+from app.models import Base, User, Movie, RequiredChannel, Setting, Series, SeriesEpisode, VipPlan, AdminUser, DailySearch, JoinRequest
 
 # Create async engine
 engine = create_async_engine(DATABASE_URL, echo=False)
@@ -109,6 +109,27 @@ async def remove_user_vip(user_id: int) -> bool:
                 return True
             return False
 
+async def set_user_inactive(user_id: int):
+    async with AsyncSessionLocal() as session:
+        async with session.begin():
+            await session.execute(update(User).where(User.id == user_id).values(is_active=False))
+            await session.commit()
+
+async def add_join_request(user_id: int, channel_id: int):
+    async with AsyncSessionLocal() as session:
+        async with session.begin():
+            # Check if exists
+            result = await session.execute(select(JoinRequest).where((JoinRequest.user_id == user_id) & (JoinRequest.channel_id == channel_id)))
+            if not result.scalars().first():
+                req = JoinRequest(user_id=user_id, channel_id=channel_id)
+                session.add(req)
+            await session.commit()
+
+async def has_join_request(user_id: int, channel_id: int) -> bool:
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(select(JoinRequest).where((JoinRequest.user_id == user_id) & (JoinRequest.channel_id == channel_id)))
+        return result.scalars().first() is not None
+
 # --- MOVIE FUNCTIONS ---
 async def add_movie(title: str, channel_id: int, message_id: int, file_id: str) -> Movie:
     async with AsyncSessionLocal() as session:
@@ -186,6 +207,13 @@ async def delete_movie(code: int) -> bool:
 async def search_movies_db() -> List[Movie]:
     async with AsyncSessionLocal() as session:
         result = await session.execute(select(Movie))
+        return list(result.scalars().all())
+
+async def get_top_10_movies() -> List[Movie]:
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(Movie).order_by(Movie.search_count.desc()).limit(10)
+        )
         return list(result.scalars().all())
 
 
@@ -490,6 +518,8 @@ async def get_statistics() -> Dict[str, Any]:
         all_users_res = await session.execute(select(User.id))
         all_user_ids = list(all_users_res.scalars().all())
 
+        blocked_users = await session.execute(select(func.count(User.id)).where(User.is_active == False))
+
         return {
             "total_users": total_users.scalar() or 0,
             "vip_users": vip_users.scalar() or 0,
@@ -499,7 +529,8 @@ async def get_statistics() -> Dict[str, Any]:
             "today_users": today_users.scalar() or 0,
             "thirty_days_users": thirty_days_users.scalar() or 0,
             "today_searches": today_searches,
-            "all_user_ids": all_user_ids
+            "all_user_ids": all_user_ids,
+            "blocked_users": blocked_users.scalar() or 0
         }
 
 async def toggle_movie_vip(code: int) -> Optional[bool]:
@@ -530,11 +561,11 @@ async def get_user_ids_by_target(target: str) -> List[int]:
     async with AsyncSessionLocal() as session:
         now = datetime.datetime.utcnow()
         if target == "vip":
-            query = select(User.id).where(User.vip_until > now)
+            query = select(User.id).where((User.vip_until > now) & (User.is_active == True))
         elif target == "oddiy":
-            query = select(User.id).where((User.vip_until == None) | (User.vip_until <= now))
+            query = select(User.id).where(((User.vip_until == None) | (User.vip_until <= now)) & (User.is_active == True))
         else:
-            query = select(User.id)
+            query = select(User.id).where(User.is_active == True)
             
         result = await session.execute(query)
         return list(result.scalars().all())
