@@ -4,6 +4,7 @@ from aiogram import Router, F, Bot
 from aiogram.types import Message, CallbackQuery, InlineKeyboardButton
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
+from aiogram.exceptions import TelegramBadRequest
 from app.config import ADMIN_IDS, STORAGE_CHANNEL_ID
 from app.states import (
     AdminState, AddMovieState, AddSeriesState, AddVipPlanState, ManageVipUserState,
@@ -84,7 +85,12 @@ async def show_stats(callback: CallbackQuery):
             text += f"{idx}. {m.title} [{m.movie_code}] - {m.search_count} marta\n"
     else:
         text += "Hozircha ma'lumot yo'q.\n"
-    await callback.message.edit_text(text, reply_markup=get_admin_panel())
+
+    try:
+        await callback.message.edit_text(text, reply_markup=get_admin_panel())
+    except TelegramBadRequest:
+        pass
+    
     await callback.answer()
 
 # --- REQUIRED CHANNELS ---
