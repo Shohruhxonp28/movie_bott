@@ -20,7 +20,7 @@ from app.database import (
     get_vip_plans, add_vip_plan, delete_vip_plan, remove_user_vip, get_user,
     is_admin_db, add_admin_user, delete_admin_user, get_all_admins,
     replace_series_episode_file, delete_series_episode, toggle_movie_vip,
-    toggle_series_vip, get_user_ids_by_target, get_top_10_movies
+    toggle_series_vip, get_user_ids_by_target, get_top_10_movies, update_series_link
 )
 from app.keyboards import (
     get_admin_panel, get_admin_channels_keyboard, get_admin_movies_keyboard,
@@ -1014,7 +1014,7 @@ async def admin_series_detail(callback: CallbackQuery):
     else:
         info += f"📁 Qismlar soni: {series.episodes_count}"
         
-    await callback.message.edit_text(info, reply_markup=get_series_detail_keyboard(code, is_vip=series.is_vip))
+    await callback.message.edit_text(info, reply_markup=get_series_detail_keyboard(code, is_vip=series.is_vip, has_link=bool(series.channel_link)))
     await callback.answer()
 
 @admin_router.callback_query(F.data.startswith("admin_toggle_series_vip_"))
@@ -1040,7 +1040,7 @@ async def admin_toggle_series_vip_handler(callback: CallbackQuery):
     else:
         info += f"📁 Qismlar soni: {series.episodes_count}"
         
-    await callback.message.edit_text(info, reply_markup=get_series_detail_keyboard(code, is_vip=series.is_vip))
+    await callback.message.edit_text(info, reply_markup=get_series_detail_keyboard(code, is_vip=series.is_vip, has_link=bool(series.channel_link)))
     await callback.answer("✅ VIP holati o'zgartirildi.")
 
 @admin_router.callback_query(F.data.startswith("admin_view_series_"))
@@ -1093,6 +1093,31 @@ async def admin_rename_series_save(message: Message, state: FSMContext):
         await message.answer(f"✅ Serial nomi muvaffaqiyatli '{new_title}'ga o'zgartirildi!", reply_markup=get_admin_panel())
     else:
         await message.answer("❌ Serial nomini o'zgartirib bo'lmadi.", reply_markup=get_admin_panel())
+
+@admin_router.callback_query(F.data.startswith("admin_edit_series_link_"))
+async def admin_edit_series_link_prompt(callback: CallbackQuery, state: FSMContext):
+    if not is_admin_callback(callback):
+        return
+    code = int(callback.data.replace("admin_edit_series_link_", ""))
+    await state.set_state(AddSeriesState.waiting_for_edit_link)
+    await state.update_data(edit_series_code=code)
+    await callback.message.edit_text("🔗 Iltimos, serial uchun yangi havolani yuboring (masalan: https://t.me/... yoki @kanal):")
+    await callback.answer()
+
+@admin_router.message(AddSeriesState.waiting_for_edit_link)
+async def admin_edit_series_link_save(message: Message, state: FSMContext):
+    if not is_admin(message):
+        return
+    data = await state.get_data()
+    code = data.get("edit_series_code")
+    new_link = message.text.strip()
+    
+    success = await update_series_link(code, new_link)
+    await state.clear()
+    if success:
+        await message.answer(f"✅ Serial havolasi muvaffaqiyatli yangilandi!\n\nYangi havola: {new_link}", reply_markup=get_admin_panel())
+    else:
+        await message.answer("❌ Serial havolasini yangilab bo'lmadi.", reply_markup=get_admin_panel())
 
 @admin_router.callback_query(F.data.startswith("admin_delete_series_"))
 async def admin_delete_series_action(callback: CallbackQuery):

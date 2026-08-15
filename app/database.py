@@ -331,6 +331,15 @@ async def rename_series(code: int, new_title: str) -> bool:
             await session.commit()
             return (result.rowcount or 0) > 0
 
+async def update_series_link(code: int, new_link: str) -> bool:
+    async with AsyncSessionLocal() as session:
+        async with session.begin():
+            result = await session.execute(
+                update(Series).where(Series.series_code == code).values(channel_link=new_link)
+            )
+            await session.commit()
+            return (result.rowcount or 0) > 0
+
 async def delete_series(code: int) -> bool:
     async with AsyncSessionLocal() as session:
         async with session.begin():

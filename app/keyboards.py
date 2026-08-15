@@ -276,15 +276,20 @@ def get_admin_series_keyboard(series: List[Series], page: int, total_pages: int)
     builder.row(InlineKeyboardButton(text="🔙 Orqaga", callback_data="admin_back"))
     return builder.as_markup()
 
-def get_series_detail_keyboard(code: int, is_vip: bool = False) -> InlineKeyboardMarkup:
+def get_series_detail_keyboard(code: int, is_vip: bool = False, has_link: bool = False) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.row(
         InlineKeyboardButton(text="👁️ Serialni ko'rish", callback_data=f"admin_view_series_{code}"),
         InlineKeyboardButton(text="✏️ Nomini o'zgartirish", callback_data=f"admin_rename_series_{code}")
     )
     vip_text = "🔓 VIP'dan chiqarish" if is_vip else "⭐ VIP qilish"
+    if has_link:
+        manage_btn = InlineKeyboardButton(text="🔗 Havolani o'zgartirish", callback_data=f"admin_edit_series_link_{code}")
+    else:
+        manage_btn = InlineKeyboardButton(text="📁 Qismlarni boshqarish", callback_data=f"admin_series_manage_episodes_{code}")
+
     builder.row(
-        InlineKeyboardButton(text="📁 Qismlarni boshqarish", callback_data=f"admin_series_manage_episodes_{code}"),
+        manage_btn,
         InlineKeyboardButton(text=vip_text, callback_data=f"admin_toggle_series_vip_{code}")
     )
     builder.row(

@@ -11,6 +11,7 @@ class AddSeriesState(StatesGroup):
     waiting_for_episodes_count = State()
     waiting_for_file = State()
     waiting_for_rename = State()
+    waiting_for_edit_link = State()
 
 class VIPState(StatesGroup):
     waiting_for_receipt = State()
