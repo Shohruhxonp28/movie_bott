@@ -32,19 +32,40 @@ async def process_check_subscription(callback: CallbackQuery, state: FSMContext,
         bot_username = bot_info.username
         
         if pending_code:
+            user = await get_or_create_user(user_id, callback.from_user.username, callback.from_user.full_name)
             if pending_code >= 1000:
                 series = await get_series_by_code(pending_code)
                 if series:
+                    if series.is_vip and not user.is_vip:
+                        plans = await get_vip_plans()
+                        await callback.message.answer(
+                            "⚠️ **Ushbu serial faqat VIP foydalanuvchilar uchun!**\n\n"
+                            "Ushbu serialni ko'rish uchun VIP obuna bo'lishingiz zarur. Rejalardan birini tanlang:",
+                            reply_markup=get_user_vip_plans_keyboard(plans)
+                        )
+                        await callback.message.delete()
+                        await state.clear()
+                        return
                     from app.handlers.user import send_series_to_user
-                    await send_series_to_user(bot, callback.message.chat.id, series, bot_username)
+                    await send_series_to_user(bot, callback.message.chat.id, series, bot_username, user=user)
                     await callback.message.delete()
                     await state.clear()
                     return
             else:
                 movie = await get_movie_by_code(pending_code)
                 if movie:
+                    if movie.is_vip and not user.is_vip:
+                        plans = await get_vip_plans()
+                        await callback.message.answer(
+                            "⚠️ **Ushbu kino faqat VIP foydalanuvchilar uchun!**\n\n"
+                            "Ushbu kinoni ko'rish uchun VIP obuna bo'lishingiz zarur. Rejalardan birini tanlang:",
+                            reply_markup=get_user_vip_plans_keyboard(plans)
+                        )
+                        await callback.message.delete()
+                        await state.clear()
+                        return
                     from app.handlers.user import send_movie_to_user
-                    await send_movie_to_user(bot, callback.message.chat.id, movie, bot_username)
+                    await send_movie_to_user(bot, callback.message.chat.id, movie, bot_username, user=user)
                     await callback.message.delete()
                     await state.clear()
                     return

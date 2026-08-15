@@ -2,7 +2,6 @@ import logging
 from aiogram import Router, F, Bot
 from aiogram.types import Message, InlineKeyboardButton, ChatJoinRequest, ChatMemberUpdated
 from aiogram.filters import Command, CommandObject, IS_MEMBER, IS_NOT_MEMBER, chat_member_updated
-from aiogram.filters import Command, CommandObject
 from aiogram.fsm.context import FSMContext
 from app.config import ADMIN_IDS
 from app.database import (
@@ -26,17 +25,26 @@ user_router = Router()
 @user_router.chat_join_request()
 async def handle_join_request(update: ChatJoinRequest, bot: Bot):
     await add_join_request(update.from_user.id, update.chat.id)
-    # Automatically approve the request so they can just use the bot (Optional, but user said "zayavka bob turganniyam obuna deb hisoblash"). We just save it in DB for now, which satisfies the condition.
-    # To be fully smooth we could approve:
-    # try: await update.approve() except Exception: pass
 
 @user_router.my_chat_member()
 async def handle_my_chat_member(update: ChatMemberUpdated):
     if update.new_chat_member.status in ["kicked", "left"]:
         await set_user_inactive(update.from_user.id)
 
-async def send_movie_to_user(bot: Bot, chat_id: int, movie, bot_username: str):
+async def send_movie_to_user(bot: Bot, chat_id: int, movie, bot_username: str, user=None):
     """Utility to send movie to user using copyMessage and increment search counter."""
+    if user is None:
+        user = await get_user(chat_id)
+        
+    if movie.is_vip and (not user or not user.is_vip):
+        plans = await get_vip_plans()
+        await bot.send_message(
+            chat_id=chat_id,
+            text="⚠️ **Ushbu kino faqat VIP foydalanuvchilar uchun!**\n\nUshbu kinoni ko'rish uchun VIP obuna bo'lishingiz zarur. Rejalardan birini tanlang:",
+            reply_markup=get_user_vip_plans_keyboard(plans)
+        )
+        return
+
     caption = (
         f"🎬 Kino: {movie.title}\n\n"
         f"🆔 Kodi: {movie.movie_code}"
@@ -51,8 +59,20 @@ async def send_movie_to_user(bot: Bot, chat_id: int, movie, bot_username: str):
         reply_markup=get_share_keyboard(bot_username, movie.movie_code)
     )
 
-async def send_series_to_user(bot: Bot, chat_id: int, series, bot_username: str):
+async def send_series_to_user(bot: Bot, chat_id: int, series, bot_username: str, user=None):
     """Utility to display series details to user."""
+    if user is None:
+        user = await get_user(chat_id)
+        
+    if series.is_vip and (not user or not user.is_vip):
+        plans = await get_vip_plans()
+        await bot.send_message(
+            chat_id=chat_id,
+            text="⚠️ **Ushbu serial faqat VIP foydalanuvchilar uchun!**\n\nUshbu serialni ko'rish uchun VIP obuna bo'lishingiz zarur. Rejalardan birini tanlang:",
+            reply_markup=get_user_vip_plans_keyboard(plans)
+        )
+        return
+
     await increment_series_search_count(series.series_code)
     
     text = (
