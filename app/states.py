@@ -34,6 +34,7 @@ class AdminState(StatesGroup):
     waiting_for_rename_movie = State()
     waiting_for_replace_movie_file = State()
     waiting_for_manual_vip_id = State()
+    waiting_for_reject_reason = State()
 
 class AddAdminState(StatesGroup):
     waiting_for_admin_id = State()

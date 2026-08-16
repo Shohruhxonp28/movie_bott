@@ -678,18 +678,20 @@ async def approve_vip(callback: CallbackQuery, bot: Bot):
             pass
         await callback.answer("❌ Foydalanuvchi topilmadi.", show_alert=True)
 
-@admin_router.callback_query(F.data.startswith("reject_vip_"))
-async def reject_vip(callback: CallbackQuery, bot: Bot):
+@admin_router.callback_query(F.data.startswith("reject_vip_confirm_default_"))
+async def reject_vip_default(callback: CallbackQuery, state: FSMContext, bot: Bot):
     if not is_admin_callback(callback):
         return
-    user_id = int(callback.data.replace("reject_vip_", ""))
+    user_id = int(callback.data.replace("reject_vip_confirm_default_", ""))
+    await state.clear()
+    
     try:
         await bot.send_message(
             chat_id=user_id,
             text="❌ **VIP obuna so'rovi rad etildi**\n\nYuborgan to'lov chekingiz rad etildi. Agar xatolik deb o'ylasangiz, administrator bilan bog'laning."
         )
-    except Exception:
-        pass
+    except Exception as e:
+        logger.error(f"Failed to send rejection to user {user_id}: {e}")
         
     reject_text = f"❌ Foydalanuvchi `{user_id}` uchun VIP so'rovi rad etildi."
     try:
@@ -700,6 +702,74 @@ async def reject_vip(callback: CallbackQuery, bot: Bot):
     except Exception:
         pass
     await callback.answer("❌ So'rov rad etildi.", show_alert=True)
+
+@admin_router.callback_query(F.data.startswith("reject_vip_"))
+async def reject_vip_prompt(callback: CallbackQuery, state: FSMContext):
+    if not is_admin_callback(callback):
+        return
+    user_id = int(callback.data.replace("reject_vip_", ""))
+    await state.update_data(
+        reject_vip_user_id=user_id,
+        reject_vip_msg_id=callback.message.message_id,
+        reject_vip_chat_id=callback.message.chat.id,
+        has_caption=(callback.message.caption is not None)
+    )
+    await state.set_state(AdminState.waiting_for_reject_reason)
+    
+    from aiogram.utils.keyboard import InlineKeyboardBuilder
+    builder = InlineKeyboardBuilder()
+    builder.row(InlineKeyboardButton(text="➡️ Sababsiz rad etish", callback_data=f"reject_vip_confirm_default_{user_id}"))
+    builder.row(InlineKeyboardButton(text="🔙 Bekor qilish", callback_data="admin_back"))
+    
+    msg_text = (
+        f"❌ **VIP obuna so'rovini rad etish** (User ID: `{user_id}`)\n\n"
+        "Iltimos, foydalanuvchiga yuboriladigan **rad etish sababini** yozing:\n"
+        "(masalan: *To'lov summasi kam*, *Chek tasviri aniq emas*)\n\n"
+        "Yoki sababsiz rad etish uchun **Sababsiz rad etish** tugmasini bosing."
+    )
+    
+    if callback.message.caption is not None:
+        await callback.message.edit_caption(caption=msg_text, reply_markup=builder.as_markup())
+    else:
+        await callback.message.edit_text(text=msg_text, reply_markup=builder.as_markup())
+    await callback.answer()
+
+@admin_router.message(AdminState.waiting_for_reject_reason)
+async def process_reject_vip_reason(message: Message, state: FSMContext, bot: Bot):
+    if not is_admin(message):
+        return
+    
+    data = await state.get_data()
+    user_id = data.get("reject_vip_user_id")
+    orig_msg_id = data.get("reject_vip_msg_id")
+    orig_chat_id = data.get("reject_vip_chat_id")
+    has_caption = data.get("has_caption", False)
+    
+    reason = message.text.strip()
+    await state.clear()
+    
+    if user_id:
+        try:
+            await bot.send_message(
+                chat_id=user_id,
+                text=f"❌ **VIP obuna so'rovi rad etildi**\n\n"
+                     f"📝 **Sabab:** {reason}\n\n"
+                     f"Agar xatolik deb o'ylasangiz, administrator bilan bog'laning."
+            )
+        except Exception as e:
+            logger.error(f"Failed to send rejection reason to user {user_id}: {e}")
+            
+        reject_text = f"❌ Foydalanuvchi `{user_id}` uchun VIP so'rovi rad etildi.\n📝 **Sabab:** {reason}"
+        if orig_msg_id and orig_chat_id:
+            try:
+                if has_caption:
+                    await bot.edit_message_caption(chat_id=orig_chat_id, message_id=orig_msg_id, caption=reject_text)
+                else:
+                    await bot.edit_message_text(chat_id=orig_chat_id, message_id=orig_msg_id, text=reject_text)
+            except Exception:
+                pass
+                
+        await message.answer(f"✅ Foydalanuvchi `{user_id}` so'rovi rad etildi va sababi yuborildi.", reply_markup=get_admin_panel())
 
 # --- VIP MANAGEMENT & PLANS (ADMIN) ---
 @admin_router.callback_query(F.data == "admin_vip_plans")
