@@ -3,6 +3,7 @@ import logging
 import sys
 import os
 from aiogram import Bot, Dispatcher
+from aiogram.client.default import DefaultBotProperties
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiohttp import web
 from app.config import BOT_TOKEN
@@ -32,7 +33,10 @@ async def main():
     logger.info("Database initialized successfully.")
 
     # Initialize Bot and Dispatcher
-    bot = Bot(token=BOT_TOKEN)
+    bot = Bot(
+        token=BOT_TOKEN,
+        default=DefaultBotProperties(protect_content=True)
+    )
     dp = Dispatcher(storage=MemoryStorage())
 
     # Register routers
