@@ -20,8 +20,12 @@ def get_join_channels_keyboard(channels: List[RequiredChannel], user_id: Optiona
         url = chan.invite_link.strip() if chan.invite_link else ""
         
         if sub_type == "instagram":
-            # For instagram, callback data records link click immediately
-            builder.button(text=f"📸 {chan.name} (Instagram)", callback_data=f"click_insta_{chan.id}")
+            if not url:
+                insta_user = target.replace("@", "")
+                url = f"https://instagram.com/{insta_user}"
+            elif not (url.startswith("http://") or url.startswith("https://")):
+                url = f"https://{url}"
+            builder.button(text=f"📸 {chan.name} (Instagram)", url=url)
         elif sub_type == "bot":
             if not url:
                 bot_user = target.replace("@", "")

@@ -97,14 +97,7 @@ async def process_click_insta(callback: CallbackQuery):
             if not (url.startswith("http://") or url.startswith("https://")):
                 url = f"https://{url}"
                 
-            from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-            kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=f"🔗 {target_chan.name} (Instagram)", url=url)]])
-            await callback.message.answer(
-                f"✅ **Instagram obuna havola bosildi!**\n\n"
-                f"Quyidagi havola orqali Instagram sahifamizga o'ting:\n{url}",
-                reply_markup=kb
-            )
-            await callback.answer("✅ Instagram linki qayd etildi! Endi 'A'zolikni tekshirish' tugmasini bosing.")
+            await callback.answer(url=url)
         else:
             await callback.answer("Kanal topilmadi.", show_alert=True)
     except Exception as e:

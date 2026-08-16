@@ -32,8 +32,8 @@ async def check_user_subscription(bot: Bot, user_id: int) -> bool:
                 return False
         elif sub_type == "instagram":
             insta_user = getattr(channel, "target_username", None) or channel.name
-            if not await has_user_subbed_instagram(user_id, insta_user):
-                return False
+            from app.database import record_user_instagram_sub
+            await record_user_instagram_sub(user_id, insta_user)
         else:
             if not channel.channel_id:
                 continue
