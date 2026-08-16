@@ -136,7 +136,7 @@ async def check_and_prompt_subscription(message: Message, bot: Bot, state: FSMCo
         "⚠️ **Ruxsat berilmadi!**\n\n"
         "Botdan foydalanish uchun homiy kanallarimizga a'zo bo'lishingiz kerak "
         "yoki barcha cheklovlarni chetlab o'tish uchun VIP obuna sotib oling.",
-        reply_markup=get_join_channels_keyboard(channels)
+        reply_markup=get_join_channels_keyboard(channels, message.from_user.id)
     )
     return False
 
@@ -170,10 +170,16 @@ async def cmd_start(message: Message, command: CommandObject, state: FSMContext,
     
     args = command.args
     pending_code = None
-    if args and args.startswith("movie_"):
-        code_str = args.replace("movie_", "")
-        if code_str.isdigit():
-            pending_code = int(code_str)
+    if args:
+        if args.startswith("movie_"):
+            code_str = args.replace("movie_", "")
+            if code_str.isdigit():
+                pending_code = int(code_str)
+        elif args.startswith("botstart_") or args.startswith("bot_"):
+            target_bot_user = args.split("_", 1)[1]
+            if target_bot_user:
+                from app.database import record_user_bot_start
+                await record_user_bot_start(message.from_user.id, target_bot_user)
 
     if pending_code:
         is_subbed = await check_and_prompt_subscription(message, bot, state, pending_code)

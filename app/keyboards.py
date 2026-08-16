@@ -12,30 +12,45 @@ def get_main_keyboard() -> ReplyKeyboardMarkup:
     builder.adjust(2)
     return builder.as_markup(resize_keyboard=True)
 
-def get_join_channels_keyboard(channels: List[RequiredChannel]) -> InlineKeyboardMarkup:
+def get_join_channels_keyboard(channels: List[RequiredChannel], user_id: Optional[int] = None) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     for idx, chan in enumerate(channels, 1):
-        url = chan.invite_link.strip()
-        # Handle username starting with @
-        if url.startswith("@"):
-            url = f"https://t.me/{url[1:]}"
-        # Handle typos containing telegram domains
-        elif "t.me" in url or "telegram.me" in url:
-            if url.startswith("ttps://"):
-                url = "h" + url
-            elif url.startswith("tps://"):
-                url = "ht" + url
-            elif url.startswith("ps://"):
-                url = "htt" + url
-            elif not (url.startswith("http://") or url.startswith("https://")):
-                url = f"https://{url}"
-        else:
-            # Fallback if no protocol and no t.me domain
-            if not (url.startswith("http://") or url.startswith("https://")):
-                url = f"https://t.me/{url}"
+        sub_type = getattr(chan, "sub_type", "channel") or "channel"
+        target = getattr(chan, "target_username", None) or chan.name
+        url = chan.invite_link.strip() if chan.invite_link else ""
         
-        builder.button(text=f"📢 {chan.name}", url=url)
-    
+        if sub_type == "instagram":
+            # For instagram, callback data records link click immediately
+            builder.button(text=f"📸 {chan.name} (Instagram)", callback_data=f"click_insta_{chan.id}")
+        elif sub_type == "bot":
+            if not url:
+                bot_user = target.replace("@", "")
+                url = f"https://t.me/{bot_user}"
+                if user_id:
+                    url += f"?start=kb_{user_id}"
+            else:
+                if not (url.startswith("http://") or url.startswith("https://")):
+                    url = f"https://{url}"
+            builder.button(text=f"🤖 {chan.name} (Bot)", url=url)
+            builder.button(text=f"✅ {chan.name} (Start bosdim)", callback_data=f"confirm_bot_{chan.id}")
+        else:
+            # Telegram channel
+            if url.startswith("@"):
+                url = f"https://t.me/{url[1:]}"
+            elif "t.me" in url or "telegram.me" in url:
+                if url.startswith("ttps://"):
+                    url = "h" + url
+                elif url.startswith("tps://"):
+                    url = "ht" + url
+                elif url.startswith("ps://"):
+                    url = "htt" + url
+                elif not (url.startswith("http://") or url.startswith("https://")):
+                    url = f"https://{url}"
+            else:
+                if not (url.startswith("http://") or url.startswith("https://")):
+                    url = f"https://t.me/{url}"
+            builder.button(text=f"📢 {chan.name}", url=url)
+
     builder.adjust(1)
     
     # Action buttons
@@ -134,11 +149,19 @@ def get_receipt_approval_keyboard(user_id: int, months: int) -> InlineKeyboardMa
 def get_admin_channels_keyboard(channels: List[RequiredChannel]) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     for chan in channels:
+        sub_type = getattr(chan, "sub_type", "channel") or "channel"
+        icon = "📢" if sub_type == "channel" else ("🤖" if sub_type == "bot" else "📸")
+        # Support deletion by channel_id or record id
+        cb_data = f"admin_delete_sub_{chan.id}"
         builder.row(
-            InlineKeyboardButton(text=f"❌ O'chirish {chan.name}", callback_data=f"admin_delete_channel_{chan.channel_id}")
+            InlineKeyboardButton(text=f"❌ O'chirish: {icon} {chan.name}", callback_data=cb_data)
         )
     builder.row(
         InlineKeyboardButton(text="➕ Kanal qo'shish", callback_data="admin_add_channel"),
+        InlineKeyboardButton(text="🤖 Bot qo'shish", callback_data="admin_add_bot")
+    )
+    builder.row(
+        InlineKeyboardButton(text="📸 Instagram qo'shish", callback_data="admin_add_insta"),
         InlineKeyboardButton(text="🔙 Orqaga", callback_data="admin_back")
     )
     return builder.as_markup()

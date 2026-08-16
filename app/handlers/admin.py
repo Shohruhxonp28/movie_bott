@@ -12,7 +12,7 @@ from app.states import (
 )
 from app.database import (
     get_statistics, get_setting, set_setting, get_required_channels,
-    add_required_channel, delete_required_channel, add_movie,
+    add_required_channel, delete_required_channel, delete_required_channel_by_id, add_movie,
     get_all_movies, get_movie_count, get_movie_by_code, rename_movie,
     replace_movie_file, delete_movie, update_vip_until,
     add_series, add_series_episode, get_all_series, get_series_count,
@@ -93,18 +93,24 @@ async def show_stats(callback: CallbackQuery):
     
     await callback.answer()
 
-# --- REQUIRED CHANNELS ---
+# --- REQUIRED CHANNELS & SUBSCRIPTIONS ---
 @admin_router.callback_query(F.data == "admin_channels")
 async def view_required_channels(callback: CallbackQuery):
     if not is_admin_callback(callback):
         return
     channels = await get_required_channels()
-    text = "📺 **Foydalanuvchilar uchun majburiy kanallar:**\n\n"
+    text = "📺 **Foydalanuvchilar uchun majburiy obunalar:**\n\n"
     if not channels:
-        text += "Hech qanday majburiy kanal qo'shilmagan. Foydalanuvchilar to'g'ridan-to'g'ri foydalanishi mumkin."
+        text += "Hech qanday majburiy obuna qo'shilmagan. Foydalanuvchilar to'g'ridan-to'g'ri foydalanishi mumkin."
     else:
         for idx, chan in enumerate(channels, 1):
-            text += f"{idx}. {chan.name} (ID: `{chan.channel_id}`)\n"
+            sub_type = getattr(chan, "sub_type", "channel") or "channel"
+            if sub_type == "bot":
+                text += f"{idx}. 🤖 Bot: {chan.name} (`@{chan.target_username or ''}`)\n"
+            elif sub_type == "instagram":
+                text += f"{idx}. 📸 Instagram: {chan.name} (`@{chan.target_username or ''}`)\n"
+            else:
+                text += f"{idx}. 📢 Kanal: {chan.name} (ID: `{chan.channel_id or ''}`)\n"
     
     await callback.message.edit_text(text, reply_markup=get_admin_channels_keyboard(channels))
     await callback.answer()
@@ -115,8 +121,9 @@ async def add_channel_prompt(callback: CallbackQuery, state: FSMContext):
         return
     await state.set_state(AdminState.waiting_for_add_channel)
     await callback.message.edit_text(
-        "📺 Iltimos, kanal ma'lumotlarini quyidagi formatda yuboring:\n\n"
-        "`channel_id|taklif_Linki|kanal_nomi`\n\n"
+        "📢 **Telegram Kanal qo'shish**\n\n"
+        "Iltimos, kanal ma'lumotlarini quyidagi formatda yuboring:\n\n"
+        "`channel_id|taklif_linki|kanal_nomi`\n\n"
         "Masalan:\n"
         "`-1001234567890|https://t.me/+AbCdEf|Mening Kanalim`"
     )
@@ -136,11 +143,86 @@ async def add_channel_save(message: Message, state: FSMContext):
         invite_link = parts[1].strip()
         name = parts[2].strip()
         
-        await add_required_channel(channel_id, invite_link, name)
+        await add_required_channel(channel_id, invite_link, name, sub_type="channel")
         await state.clear()
-        await message.answer("✅ Kanal muvaffaqiyatli qo'shildi!", reply_markup=get_admin_panel())
+        await message.answer("✅ Telegram kanal muvaffaqiyatli qo'shildi!", reply_markup=get_admin_panel())
     except ValueError:
         await message.answer("❌ Kanal ID raqam (integer) bo'lishi kerak. Qayta urinib ko'ring.")
+
+@admin_router.callback_query(F.data == "admin_add_bot")
+async def add_bot_prompt(callback: CallbackQuery, state: FSMContext):
+    if not is_admin_callback(callback):
+        return
+    await state.set_state(AdminState.waiting_for_add_bot)
+    await callback.message.edit_text(
+        "🤖 **Telegram Bot qo'shish**\n\n"
+        "Iltimos, bot ma'lumotlarini quyidagi formatda yuboring:\n\n"
+        "`@bot_username|taklif_linki|bot_nomi`\n\n"
+        "Masalan:\n"
+        "`@kinobot_partnyor|https://t.me/kinobot_partnyor|Hamkor Botimiz`"
+    )
+    await callback.answer()
+
+@admin_router.message(AdminState.waiting_for_add_bot)
+async def add_bot_save(message: Message, state: FSMContext):
+    if not is_admin(message):
+        return
+    parts = message.text.split("|")
+    if len(parts) < 2:
+        await message.answer("❌ Noto'g'ri format. Foydalaning: `@bot_username|taklif_linki|bot_nomi`")
+        return
+        
+    bot_user = parts[0].strip().replace("@", "")
+    invite_link = parts[1].strip() if len(parts) >= 2 else f"https://t.me/{bot_user}"
+    name = parts[2].strip() if len(parts) >= 3 else parts[1].strip()
+    
+    await add_required_channel(None, invite_link, name, sub_type="bot", target_username=bot_user)
+    await state.clear()
+    await message.answer(f"✅ Telegram bot (@{bot_user}) muvaffaqiyatli qo'shildi!", reply_markup=get_admin_panel())
+
+@admin_router.callback_query(F.data == "admin_add_insta")
+async def add_insta_prompt(callback: CallbackQuery, state: FSMContext):
+    if not is_admin_callback(callback):
+        return
+    await state.set_state(AdminState.waiting_for_add_insta)
+    await callback.message.edit_text(
+        "📸 **Instagram Sahifa qo'shish**\n\n"
+        "Iltimos, Instagram ma'lumotlarini quyidagi formatda yuboring:\n\n"
+        "`@insta_username|taklif_linki|sahifa_nomi`\n\n"
+        "Masalan:\n"
+        "`@kinotime_uz|https://instagram.com/kinotime_uz|Instagram Sahifamiz`"
+    )
+    await callback.answer()
+
+@admin_router.message(AdminState.waiting_for_add_insta)
+async def add_insta_save(message: Message, state: FSMContext):
+    if not is_admin(message):
+        return
+    parts = message.text.split("|")
+    if len(parts) < 2:
+        await message.answer("❌ Noto'g'ri format. Foydalaning: `@insta_username|taklif_linki|sahifa_nomi`")
+        return
+        
+    insta_user = parts[0].strip().replace("@", "")
+    invite_link = parts[1].strip() if len(parts) >= 2 else f"https://instagram.com/{insta_user}"
+    name = parts[2].strip() if len(parts) >= 3 else parts[1].strip()
+    
+    await add_required_channel(None, invite_link, name, sub_type="instagram", target_username=insta_user)
+    await state.clear()
+    await message.answer(f"✅ Instagram sahifasi (@{insta_user}) muvaffaqiyatli qo'shildi!", reply_markup=get_admin_panel())
+
+@admin_router.callback_query(F.data.startswith("admin_delete_sub_"))
+async def delete_sub_action(callback: CallbackQuery):
+    if not is_admin_callback(callback):
+        return
+    rec_id = int(callback.data.replace("admin_delete_sub_", ""))
+    success = await delete_required_channel_by_id(rec_id)
+    if success:
+        await callback.answer("✅ Obuna o'chirildi.")
+        channels = await get_required_channels()
+        await callback.message.edit_text("📺 Majburiy obunalar ro'yxati yangilandi:", reply_markup=get_admin_channels_keyboard(channels))
+    else:
+        await callback.answer("❌ Obuna topilmadi.")
 
 @admin_router.callback_query(F.data.startswith("admin_delete_channel_"))
 async def delete_channel_action(callback: CallbackQuery):
@@ -151,7 +233,7 @@ async def delete_channel_action(callback: CallbackQuery):
     if success:
         await callback.answer("✅ Kanal o'chirildi.")
         channels = await get_required_channels()
-        await callback.message.edit_text("📺 Majburiy kanallar ro'yxati yangilandi:", reply_markup=get_admin_channels_keyboard(channels))
+        await callback.message.edit_text("📺 Majburiy obunalar ro'yxati yangilandi:", reply_markup=get_admin_channels_keyboard(channels))
     else:
         await callback.answer("❌ Kanal not found.")
 

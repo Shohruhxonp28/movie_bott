@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, Asyn
 from sqlalchemy import select, update, delete, func, text
 from sqlalchemy.orm import selectinload
 from app.config import DATABASE_URL
-from app.models import Base, User, Movie, RequiredChannel, Setting, Series, SeriesEpisode, VipPlan, AdminUser, DailySearch, JoinRequest
+from app.models import Base, User, Movie, RequiredChannel, Setting, Series, SeriesEpisode, VipPlan, AdminUser, DailySearch, JoinRequest, UserBotStart, UserInstagramSub
 
 # Create async engine
 engine = create_async_engine(DATABASE_URL, echo=False)
@@ -24,6 +24,9 @@ async def init_db():
             await conn.execute(text("ALTER TABLE series_episodes ADD COLUMN IF NOT EXISTS season_number INTEGER DEFAULT 1;"))
             await conn.execute(text("ALTER TABLE movies ADD COLUMN IF NOT EXISTS is_vip BOOLEAN DEFAULT FALSE;"))
             await conn.execute(text("ALTER TABLE series ADD COLUMN IF NOT EXISTS is_vip BOOLEAN DEFAULT FALSE;"))
+            await conn.execute(text("ALTER TABLE required_channels ADD COLUMN IF NOT EXISTS sub_type VARCHAR(50) DEFAULT 'channel';"))
+            await conn.execute(text("ALTER TABLE required_channels ADD COLUMN IF NOT EXISTS target_username VARCHAR(255);"))
+            await conn.execute(text("ALTER TABLE required_channels ALTER COLUMN channel_id DROP NOT NULL;"))
         except Exception as e:
             logger.error(f"Migration error: {e}")
             
@@ -353,18 +356,24 @@ async def search_series_db() -> List[Series]:
         return list(result.scalars().all())
 
 
-# --- REQUIRED CHANNELS ---
-async def add_required_channel(channel_id: int, invite_link: str, name: str) -> RequiredChannel:
+# --- REQUIRED CHANNELS & SUBSCRIPTIONS ---
+async def add_required_channel(
+    channel_id: Optional[int],
+    invite_link: str,
+    name: str,
+    sub_type: str = "channel",
+    target_username: Optional[str] = None
+) -> RequiredChannel:
     async with AsyncSessionLocal() as session:
         async with session.begin():
-            result = await session.execute(select(RequiredChannel).where(RequiredChannel.channel_id == channel_id))
-            chan = result.scalars().first()
-            if chan:
-                chan.invite_link = invite_link
-                chan.name = name
-            else:
-                chan = RequiredChannel(channel_id=channel_id, invite_link=invite_link, name=name)
-                session.add(chan)
+            chan = RequiredChannel(
+                channel_id=channel_id,
+                invite_link=invite_link,
+                name=name,
+                sub_type=sub_type,
+                target_username=target_username
+            )
+            session.add(chan)
             await session.commit()
             return chan
 
@@ -375,10 +384,72 @@ async def delete_required_channel(channel_id: int) -> bool:
             await session.commit()
             return (result.rowcount or 0) > 0
 
+async def delete_required_channel_by_id(rec_id: int) -> bool:
+    async with AsyncSessionLocal() as session:
+        async with session.begin():
+            result = await session.execute(delete(RequiredChannel).where(RequiredChannel.id == rec_id))
+            await session.commit()
+            return (result.rowcount or 0) > 0
+
 async def get_required_channels() -> List[RequiredChannel]:
     async with AsyncSessionLocal() as session:
         result = await session.execute(select(RequiredChannel))
         return list(result.scalars().all())
+
+async def record_user_bot_start(user_id: int, target_bot_username: str):
+    async with AsyncSessionLocal() as session:
+        async with session.begin():
+            cleaned = target_bot_username.strip().replace("@", "").lower()
+            res = await session.execute(
+                select(UserBotStart).where(
+                    (UserBotStart.user_id == user_id) &
+                    (func.lower(UserBotStart.target_bot_username) == cleaned)
+                )
+            )
+            if not res.scalars().first():
+                session.add(UserBotStart(user_id=user_id, target_bot_username=cleaned))
+            await session.commit()
+
+async def has_user_started_bot(user_id: int, target_bot_username: str) -> bool:
+    if not target_bot_username:
+        return True
+    async with AsyncSessionLocal() as session:
+        cleaned = target_bot_username.strip().replace("@", "").lower()
+        res = await session.execute(
+            select(UserBotStart).where(
+                (UserBotStart.user_id == user_id) &
+                (func.lower(UserBotStart.target_bot_username) == cleaned)
+            )
+        )
+        return res.scalars().first() is not None
+
+async def record_user_instagram_sub(user_id: int, instagram_username: str):
+    async with AsyncSessionLocal() as session:
+        async with session.begin():
+            cleaned = instagram_username.strip().replace("@", "").lower()
+            res = await session.execute(
+                select(UserInstagramSub).where(
+                    (UserInstagramSub.user_id == user_id) &
+                    (func.lower(UserInstagramSub.instagram_username) == cleaned)
+                )
+            )
+            if not res.scalars().first():
+                session.add(UserInstagramSub(user_id=user_id, instagram_username=cleaned))
+            await session.commit()
+
+async def has_user_subbed_instagram(user_id: int, instagram_username: str) -> bool:
+    if not instagram_username:
+        return True
+    async with AsyncSessionLocal() as session:
+        cleaned = instagram_username.strip().replace("@", "").lower()
+        res = await session.execute(
+            select(UserInstagramSub).where(
+                (UserInstagramSub.user_id == user_id) &
+                (func.lower(UserInstagramSub.instagram_username) == cleaned)
+            )
+        )
+        return res.scalars().first() is not None
+
 
 # --- SETTINGS ---
 async def get_setting(key: str, default: str = "") -> str:

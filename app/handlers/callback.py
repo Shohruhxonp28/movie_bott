@@ -82,6 +82,53 @@ async def process_check_subscription(callback: CallbackQuery, state: FSMContext,
             show_alert=True
         )
 
+@callback_router.callback_query(F.data.startswith("click_insta_"))
+async def process_click_insta(callback: CallbackQuery):
+    try:
+        chan_id = int(callback.data.replace("click_insta_", ""))
+        from app.database import get_required_channels, record_user_instagram_sub
+        channels = await get_required_channels()
+        target_chan = next((c for c in channels if c.id == chan_id), None)
+        
+        if target_chan:
+            insta_user = getattr(target_chan, "target_username", None) or target_chan.name
+            await record_user_instagram_sub(callback.from_user.id, insta_user)
+            url = target_chan.invite_link.strip() if target_chan.invite_link else f"https://instagram.com/{insta_user.replace('@', '')}"
+            if not (url.startswith("http://") or url.startswith("https://")):
+                url = f"https://{url}"
+                
+            from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+            kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=f"🔗 {target_chan.name} (Instagram)", url=url)]])
+            await callback.message.answer(
+                f"✅ **Instagram obuna havola bosildi!**\n\n"
+                f"Quyidagi havola orqali Instagram sahifamizga o'ting:\n{url}",
+                reply_markup=kb
+            )
+            await callback.answer("✅ Instagram linki qayd etildi! Endi 'A'zolikni tekshirish' tugmasini bosing.")
+        else:
+            await callback.answer("Kanal topilmadi.", show_alert=True)
+    except Exception as e:
+        logger.error(f"Error handling click_insta: {e}")
+        await callback.answer("Xatolik yuz berdi.", show_alert=True)
+
+@callback_router.callback_query(F.data.startswith("confirm_bot_"))
+async def process_confirm_bot(callback: CallbackQuery):
+    try:
+        chan_id = int(callback.data.replace("confirm_bot_", ""))
+        from app.database import get_required_channels, record_user_bot_start
+        channels = await get_required_channels()
+        target_chan = next((c for c in channels if c.id == chan_id), None)
+        
+        if target_chan:
+            bot_user = getattr(target_chan, "target_username", None) or target_chan.name
+            await record_user_bot_start(callback.from_user.id, bot_user)
+            await callback.answer("✅ Botga kirganingiz tasdiqlandi! Endi '🔄 A'zolikni tekshirish' tugmasini bosing.", show_alert=True)
+        else:
+            await callback.answer("Bot topilmadi.", show_alert=True)
+    except Exception as e:
+        logger.error(f"Error handling confirm_bot: {e}")
+        await callback.answer("Xatolik yuz berdi.", show_alert=True)
+
 @callback_router.callback_query(F.data == "buy_vip")
 async def process_buy_vip(callback: CallbackQuery):
     plans = await get_vip_plans()

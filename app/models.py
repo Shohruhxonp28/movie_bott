@@ -62,9 +62,27 @@ class RequiredChannel(Base):
     __tablename__ = "required_channels"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    channel_id: Mapped[int] = mapped_column(BigInteger, unique=True)
+    channel_id: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
     invite_link: Mapped[str] = mapped_column(String(500))
     name: Mapped[str] = mapped_column(String(255))
+    sub_type: Mapped[str] = mapped_column(String(50), default="channel")  # 'channel', 'bot', 'instagram'
+    target_username: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+
+class UserBotStart(Base):
+    __tablename__ = "user_bot_starts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, index=True)
+    target_bot_username: Mapped[str] = mapped_column(String(255), index=True)
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.utcnow)
+
+class UserInstagramSub(Base):
+    __tablename__ = "user_instagram_subs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, index=True)
+    instagram_username: Mapped[str] = mapped_column(String(255), index=True)
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.utcnow)
 
 class Setting(Base):
     __tablename__ = "settings"
