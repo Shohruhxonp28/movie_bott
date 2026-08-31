@@ -14,6 +14,7 @@ class User(Base):
     full_name: Mapped[str] = mapped_column(String(255))
     vip_until: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.utcnow)
+    last_active_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, default=datetime.datetime.utcnow, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
     @property

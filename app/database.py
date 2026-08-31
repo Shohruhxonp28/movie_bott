@@ -32,6 +32,7 @@ async def init_db():
             
         try:
             await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE;"))
+            await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS last_active_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;"))
         except Exception:
             pass
         
@@ -69,17 +70,22 @@ async def get_or_create_user(user_id: int, username: Optional[str], full_name: s
         async with session.begin():
             result = await session.execute(select(User).where(User.id == user_id))
             db_user = result.scalars().first()
+            now = datetime.datetime.utcnow()
             if not db_user:
                 db_user = User(
                     id=user_id,
                     username=username,
-                    full_name=full_name
+                    full_name=full_name,
+                    last_active_at=now,
+                    is_active=True
                 )
                 session.add(db_user)
             else:
-                # Update username or full name if changed
+                # Update username, full name, activity and active status
                 db_user.username = username
                 db_user.full_name = full_name
+                db_user.last_active_at = now
+                db_user.is_active = True
             await session.commit()
             return db_user
 
@@ -118,6 +124,23 @@ async def remove_user_vip(user_id: int) -> bool:
                 await session.commit()
                 return True
             return False
+
+async def update_user_activity(user_id: int):
+    async with AsyncSessionLocal() as session:
+        async with session.begin():
+            await session.execute(
+                update(User).where(User.id == user_id).values(
+                    last_active_at=datetime.datetime.utcnow(),
+                    is_active=True
+                )
+            )
+            await session.commit()
+
+async def set_user_active(user_id: int):
+    async with AsyncSessionLocal() as session:
+        async with session.begin():
+            await session.execute(update(User).where(User.id == user_id).values(is_active=True))
+            await session.commit()
 
 async def set_user_inactive(user_id: int):
     async with AsyncSessionLocal() as session:
@@ -594,10 +617,28 @@ async def get_statistics() -> Dict[str, Any]:
         
         total_searches = (movie_searches.scalar() or 0) + (series_searches.scalar() or 0)
         
-        today = datetime.datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
-        today_users = await session.execute(select(func.count(User.id)).where(User.created_at >= today))
+        one_day_ago = now - datetime.timedelta(days=1)
+        seven_days_ago = now - datetime.timedelta(days=7)
+        thirty_days_ago = now - datetime.timedelta(days=30)
         
-        thirty_days_ago = datetime.datetime.utcnow() - datetime.timedelta(days=30)
+        active_24h = await session.execute(
+            select(func.count(User.id)).where(
+                (User.last_active_at >= one_day_ago) | ((User.last_active_at == None) & (User.created_at >= one_day_ago))
+            )
+        )
+        active_7d = await session.execute(
+            select(func.count(User.id)).where(
+                (User.last_active_at >= seven_days_ago) | ((User.last_active_at == None) & (User.created_at >= seven_days_ago))
+            )
+        )
+        active_30d = await session.execute(
+            select(func.count(User.id)).where(
+                (User.last_active_at >= thirty_days_ago) | ((User.last_active_at == None) & (User.created_at >= thirty_days_ago))
+            )
+        )
+        
+        today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        today_users = await session.execute(select(func.count(User.id)).where(User.created_at >= today))
         thirty_days_users = await session.execute(select(func.count(User.id)).where(User.created_at >= thirty_days_ago))
         
         today_searches = await get_today_searches()
@@ -610,6 +651,9 @@ async def get_statistics() -> Dict[str, Any]:
         return {
             "total_users": total_users.scalar() or 0,
             "vip_users": vip_users.scalar() or 0,
+            "active_24h": active_24h.scalar() or 0,
+            "active_7d": active_7d.scalar() or 0,
+            "active_30d": active_30d.scalar() or 0,
             "movies": movies.scalar() or 0,
             "series": series.scalar() or 0,
             "searches": total_searches,
@@ -619,6 +663,24 @@ async def get_statistics() -> Dict[str, Any]:
             "all_user_ids": all_user_ids,
             "blocked_users": blocked_users.scalar() or 0
         }
+
+async def get_movies_search_stats(offset: int = 0, limit: int = 10) -> Tuple[List[Movie], int]:
+    async with AsyncSessionLocal() as session:
+        count_res = await session.execute(select(func.count(Movie.movie_code)))
+        total_count = count_res.scalar() or 0
+        result = await session.execute(
+            select(Movie).order_by(Movie.search_count.desc(), Movie.movie_code.asc()).offset(offset).limit(limit)
+        )
+        return list(result.scalars().all()), total_count
+
+async def get_series_search_stats(offset: int = 0, limit: int = 10) -> Tuple[List[Series], int]:
+    async with AsyncSessionLocal() as session:
+        count_res = await session.execute(select(func.count(Series.series_code)))
+        total_count = count_res.scalar() or 0
+        result = await session.execute(
+            select(Series).order_by(Series.search_count.desc(), Series.series_code.asc()).offset(offset).limit(limit)
+        )
+        return list(result.scalars().all()), total_count
 
 async def toggle_movie_vip(code: int) -> Optional[bool]:
     async with AsyncSessionLocal() as session:
@@ -648,11 +710,11 @@ async def get_user_ids_by_target(target: str) -> List[int]:
     async with AsyncSessionLocal() as session:
         now = datetime.datetime.utcnow()
         if target == "vip":
-            query = select(User.id).where((User.vip_until > now) & (User.is_active == True))
+            query = select(User.id).where(User.vip_until > now)
         elif target == "oddiy":
-            query = select(User.id).where(((User.vip_until == None) | (User.vip_until <= now)) & (User.is_active == True))
+            query = select(User.id).where((User.vip_until == None) | (User.vip_until <= now))
         else:
-            query = select(User.id).where(User.is_active == True)
+            query = select(User.id)
             
         result = await session.execute(query)
         return list(result.scalars().all())

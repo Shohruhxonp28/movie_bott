@@ -374,6 +374,10 @@ async def process_view_season(callback: CallbackQuery, bot: Bot):
     )
     await callback.answer()
 
+@callback_router.callback_query(F.data == "noop")
+async def process_noop(callback: CallbackQuery):
+    await callback.answer()
+
 @callback_router.callback_query(F.data.startswith("movie_page_"))
 async def process_movie_page(callback: CallbackQuery, bot: Bot, state: FSMContext):
     user_id = callback.from_user.id
@@ -398,7 +402,7 @@ async def process_movie_page(callback: CallbackQuery, bot: Bot, state: FSMContex
     total_pages = (total_count + limit - 1) // limit
     
     await callback.message.edit_text(
-        "🎬 **Kinolar Katalogi**\n\nRo'yxatdan tanlang:",
+        f"🎬 **Kinolar Katalogi ({page}/{max(1, total_pages)}-sahifa)**\n\nRo'yxatdan tanlang:",
         reply_markup=get_movie_list_keyboard(items, page, total_pages)
     )
     await callback.answer()
@@ -428,7 +432,7 @@ async def process_series_page(callback: CallbackQuery, bot: Bot, state: FSMConte
     total_pages = (total_count + limit - 1) // limit
     
     await callback.message.edit_text(
-        "📺 **Seriallar Katalogi**\n\nRo'yxatdan tanlang:",
+        f"📺 **Seriallar Katalogi ({page}/{max(1, total_pages)}-sahifa)**\n\nRo'yxatdan tanlang:",
         reply_markup=get_series_list_keyboard(items, page, total_pages)
     )
     await callback.answer()

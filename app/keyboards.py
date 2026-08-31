@@ -109,12 +109,17 @@ def get_movie_list_keyboard(items: List[Any], page: int, total_pages: int) -> In
     nav_buttons = []
     if page > 1:
         nav_buttons.append(InlineKeyboardButton(text="⬅️ Oldingi", callback_data=f"movie_page_{page-1}"))
+    else:
+        nav_buttons.append(InlineKeyboardButton(text="◀️", callback_data="noop"))
+        
+    nav_buttons.append(InlineKeyboardButton(text=f"📄 {page}/{max(1, total_pages)}", callback_data="noop"))
+    
     if page < total_pages:
         nav_buttons.append(InlineKeyboardButton(text="Keyingi ➡️", callback_data=f"movie_page_{page+1}"))
+    else:
+        nav_buttons.append(InlineKeyboardButton(text="▶️", callback_data="noop"))
         
-    if nav_buttons:
-        builder.row(*nav_buttons)
-        
+    builder.row(*nav_buttons)
     builder.row(InlineKeyboardButton(text="❌ Yopish", callback_data="close_movies"))
     return builder.as_markup()
 
@@ -179,12 +184,17 @@ def get_admin_movies_keyboard(movies: List[Movie], page: int, total_pages: int) 
     nav_buttons = []
     if page > 1:
         nav_buttons.append(InlineKeyboardButton(text="⬅️ Oldingi", callback_data=f"admin_movies_page_{page-1}"))
+    else:
+        nav_buttons.append(InlineKeyboardButton(text="◀️", callback_data="noop"))
+        
+    nav_buttons.append(InlineKeyboardButton(text=f"📄 {page}/{max(1, total_pages)}", callback_data="noop"))
+    
     if page < total_pages:
         nav_buttons.append(InlineKeyboardButton(text="Keyingi ➡️", callback_data=f"admin_movies_page_{page+1}"))
+    else:
+        nav_buttons.append(InlineKeyboardButton(text="▶️", callback_data="noop"))
         
-    if nav_buttons:
-        builder.row(*nav_buttons)
-        
+    builder.row(*nav_buttons)
     builder.row(InlineKeyboardButton(text="🔙 Orqaga", callback_data="admin_back"))
     return builder.as_markup()
 
@@ -294,8 +304,15 @@ def get_admin_series_keyboard(series: List[Series], page: int, total_pages: int)
     nav_buttons = []
     if page > 1:
         nav_buttons.append(InlineKeyboardButton(text="⬅️ Oldingi", callback_data=f"admin_series_page_{page-1}"))
+    else:
+        nav_buttons.append(InlineKeyboardButton(text="◀️", callback_data="noop"))
+        
+    nav_buttons.append(InlineKeyboardButton(text=f"📄 {page}/{max(1, total_pages)}", callback_data="noop"))
+    
     if page < total_pages:
         nav_buttons.append(InlineKeyboardButton(text="Keyingi ➡️", callback_data=f"admin_series_page_{page+1}"))
+    else:
+        nav_buttons.append(InlineKeyboardButton(text="▶️", callback_data="noop"))
         
     if nav_buttons:
         builder.row(*nav_buttons)
@@ -438,12 +455,82 @@ def get_series_list_keyboard(items: List[Series], page: int, total_pages: int) -
     nav_buttons = []
     if page > 1:
         nav_buttons.append(InlineKeyboardButton(text="⬅️ Oldingi", callback_data=f"series_page_{page-1}"))
+    else:
+        nav_buttons.append(InlineKeyboardButton(text="◀️", callback_data="noop"))
+        
+    nav_buttons.append(InlineKeyboardButton(text=f"📄 {page}/{max(1, total_pages)}", callback_data="noop"))
+    
     if page < total_pages:
         nav_buttons.append(InlineKeyboardButton(text="Keyingi ➡️", callback_data=f"series_page_{page+1}"))
+    else:
+        nav_buttons.append(InlineKeyboardButton(text="▶️", callback_data="noop"))
         
-    if nav_buttons:
-        builder.row(*nav_buttons)
-        
+    builder.row(*nav_buttons)
     builder.row(InlineKeyboardButton(text="❌ Yopish", callback_data="close_movies"))
+    return builder.as_markup()
+
+def get_admin_stats_menu_keyboard() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        InlineKeyboardButton(text="🎬 Filmlar qidiruv statistikasi", callback_data="admin_movie_stats_page_1"),
+        InlineKeyboardButton(text="📺 Seriallar statistikasi", callback_data="admin_series_stats_page_1")
+    )
+    builder.row(InlineKeyboardButton(text="🔙 Orqaga", callback_data="admin_back"))
+    return builder.as_markup()
+
+def get_admin_movie_stats_keyboard(movies: List[Movie], page: int, total_pages: int) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    for movie in movies:
+        is_vip_badge = " ⭐" if movie.is_vip else ""
+        builder.row(
+            InlineKeyboardButton(
+                text=f"🎬 {movie.title}{is_vip_badge} [{movie.movie_code}] — 👁️ {movie.search_count}",
+                callback_data=f"admin_movie_detail_{movie.movie_code}"
+            )
+        )
+        
+    nav_buttons = []
+    if page > 1:
+        nav_buttons.append(InlineKeyboardButton(text="⬅️ Oldingi", callback_data=f"admin_movie_stats_page_{page-1}"))
+    else:
+        nav_buttons.append(InlineKeyboardButton(text="◀️", callback_data="noop"))
+        
+    nav_buttons.append(InlineKeyboardButton(text=f"📄 {page}/{max(1, total_pages)}", callback_data="noop"))
+    
+    if page < total_pages:
+        nav_buttons.append(InlineKeyboardButton(text="Keyingi ➡️", callback_data=f"admin_movie_stats_page_{page+1}"))
+    else:
+        nav_buttons.append(InlineKeyboardButton(text="▶️", callback_data="noop"))
+        
+    builder.row(*nav_buttons)
+    builder.row(InlineKeyboardButton(text="🔙 Statistikaga qaytish", callback_data="admin_stats"))
+    return builder.as_markup()
+
+def get_admin_series_stats_keyboard(series: List[Series], page: int, total_pages: int) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    for s in series:
+        is_vip_badge = " ⭐" if s.is_vip else ""
+        builder.row(
+            InlineKeyboardButton(
+                text=f"📺 {s.title}{is_vip_badge} [{s.series_code}] — 👁️ {s.search_count}",
+                callback_data=f"admin_series_detail_{s.series_code}"
+            )
+        )
+        
+    nav_buttons = []
+    if page > 1:
+        nav_buttons.append(InlineKeyboardButton(text="⬅️ Oldingi", callback_data=f"admin_series_stats_page_{page-1}"))
+    else:
+        nav_buttons.append(InlineKeyboardButton(text="◀️", callback_data="noop"))
+        
+    nav_buttons.append(InlineKeyboardButton(text=f"📄 {page}/{max(1, total_pages)}", callback_data="noop"))
+    
+    if page < total_pages:
+        nav_buttons.append(InlineKeyboardButton(text="Keyingi ➡️", callback_data=f"admin_series_stats_page_{page+1}"))
+    else:
+        nav_buttons.append(InlineKeyboardButton(text="▶️", callback_data="noop"))
+        
+    builder.row(*nav_buttons)
+    builder.row(InlineKeyboardButton(text="🔙 Statistikaga qaytish", callback_data="admin_stats"))
     return builder.as_markup()
 

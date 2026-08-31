@@ -1,10 +1,11 @@
 import logging
 import datetime
+import asyncio
 from aiogram import Router, F, Bot
 from aiogram.types import Message, CallbackQuery, InlineKeyboardButton
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
-from aiogram.exceptions import TelegramBadRequest
+from aiogram.exceptions import TelegramBadRequest, TelegramRetryAfter, TelegramForbiddenError
 from app.config import ADMIN_IDS, STORAGE_CHANNEL_ID
 from app.states import (
     AdminState, AddMovieState, AddSeriesState, AddVipPlanState, ManageVipUserState,
@@ -20,7 +21,8 @@ from app.database import (
     get_vip_plans, add_vip_plan, delete_vip_plan, remove_user_vip, get_user,
     is_admin_db, add_admin_user, delete_admin_user, get_all_admins,
     replace_series_episode_file, delete_series_episode, toggle_movie_vip,
-    toggle_series_vip, get_user_ids_by_target, get_top_10_movies, update_series_link
+    toggle_series_vip, get_user_ids_by_target, get_top_10_movies, update_series_link,
+    get_movies_search_stats, get_series_search_stats, set_user_active, set_user_inactive
 )
 from app.keyboards import (
     get_admin_panel, get_admin_channels_keyboard, get_admin_movies_keyboard,
@@ -31,7 +33,8 @@ from app.keyboards import (
     get_admin_manual_vip_plans_keyboard, get_admin_seasons_keyboard,
     get_admin_season_episodes_keyboard, get_admin_episode_detail_keyboard,
     get_admin_manage_admins_keyboard, get_admin_edit_texts_keyboard,
-    get_broadcast_target_keyboard
+    get_broadcast_target_keyboard, get_admin_stats_menu_keyboard,
+    get_admin_movie_stats_keyboard, get_admin_series_stats_keyboard
 )
 
 logger = logging.getLogger(__name__)
@@ -43,6 +46,10 @@ def is_admin(message: Message) -> bool:
 def is_admin_callback(callback: CallbackQuery) -> bool:
     return callback.from_user.id in ADMIN_IDS or is_admin_db(callback.from_user.id)
 
+@admin_router.callback_query(F.data == "noop")
+async def admin_noop(callback: CallbackQuery):
+    await callback.answer()
+
 @admin_router.message(Command("admin"))
 async def admin_start(message: Message, state: FSMContext):
     if not is_admin(message):
@@ -53,7 +60,6 @@ async def admin_start(message: Message, state: FSMContext):
 @admin_router.callback_query(F.data == "admin_back")
 async def back_to_admin(callback: CallbackQuery, state: FSMContext):
     if not is_admin_callback(callback):
-
         return
     await state.clear()
     await callback.message.edit_text("🛠️ Admin panelga xush kelibsiz. Amalni tanlang:", reply_markup=get_admin_panel())
@@ -68,29 +74,70 @@ async def show_stats(callback: CallbackQuery):
     text = (
         "📊 **Bot statistikasi**\n\n"
         f"👥 Jami foydalanuvchilar: {stats['total_users']}\n"
+        f"⚡ Faol foydalanuvchilar (24 soat): {stats.get('active_24h', 0)}\n"
+        f"⚡ Faol foydalanuvchilar (7 kun): {stats.get('active_7d', 0)}\n"
+        f"⚡ Faol foydalanuvchilar (30 kun): {stats.get('active_30d', 0)}\n"
+        f"🚫 Botni bloklaganlar: {stats.get('blocked_users', 0)}\n"
         f"⭐ VIP foydalanuvchilar: {stats['vip_users']}\n"
         f"🎬 Jami filmlar: {stats['movies']}\n"
         f"📺 Jami seriallar: {stats['series']}\n"
         f"🔍 Jami qidiruvlar: {stats['searches']}\n"
-        f"📅 Bugungi ro'yxatdan o'tganlar: {stats['today_users']}\n"
-        f"📅 Oxirgi 30 kundagi yangi a'zolar: {stats['thirty_days_users']}\n"
         f"🔍 Bugungi qidiruvlar: {stats['today_searches']}\n"
-        f"🚫 Botni bloklaganlar: {stats.get('blocked_users', 0)}\n\n"
+        f"📅 Bugungi ro'yxatdan o'tganlar: {stats['today_users']}\n"
+        f"📅 Oxirgi 30 kundagi yangi a'zolar: {stats['thirty_days_users']}\n\n"
         "🏆 **Top 10 Eng Ko'p Qidirilgan Filmlar:**\n"
     )
     
     top_movies = await get_top_10_movies()
     if top_movies:
         for idx, m in enumerate(top_movies, 1):
-            text += f"{idx}. {m.title} [{m.movie_code}] - {m.search_count} marta\n"
+            text += f"{idx}. {m.title} [{m.movie_code}] — 👁️ {m.search_count} marta\n"
     else:
         text += "Hozircha ma'lumot yo'q.\n"
 
     try:
-        await callback.message.edit_text(text, reply_markup=get_admin_panel())
+        await callback.message.edit_text(text, reply_markup=get_admin_stats_menu_keyboard())
     except TelegramBadRequest:
         pass
     
+    await callback.answer()
+
+@admin_router.callback_query(F.data.startswith("admin_movie_stats_page_"))
+async def show_movie_stats_page(callback: CallbackQuery):
+    if not is_admin_callback(callback):
+        return
+    page = int(callback.data.replace("admin_movie_stats_page_", ""))
+    limit = 10
+    offset = (page - 1) * limit
+    
+    movies, total_count = await get_movies_search_stats(offset=offset, limit=limit)
+    total_pages = (total_count + limit - 1) // limit
+    
+    await callback.message.edit_text(
+        f"🎬 **Filmlar qidiruv statistikasi ({page}/{max(1, total_pages)}-sahifa)**\n\n"
+        f"Jami filmlar: {total_count} ta\n"
+        "Qidiruvlar sonini ko'rish yoki tahrirlash uchun film ustiga bosing:",
+        reply_markup=get_admin_movie_stats_keyboard(movies, page, total_pages)
+    )
+    await callback.answer()
+
+@admin_router.callback_query(F.data.startswith("admin_series_stats_page_"))
+async def show_series_stats_page(callback: CallbackQuery):
+    if not is_admin_callback(callback):
+        return
+    page = int(callback.data.replace("admin_series_stats_page_", ""))
+    limit = 10
+    offset = (page - 1) * limit
+    
+    series, total_count = await get_series_search_stats(offset=offset, limit=limit)
+    total_pages = (total_count + limit - 1) // limit
+    
+    await callback.message.edit_text(
+        f"📺 **Seriallar qidiruv statistikasi ({page}/{max(1, total_pages)}-sahifa)**\n\n"
+        f"Jami seriallar: {total_count} ta\n"
+        "Qidiruvlar sonini ko'rish yoki tahrirlash uchun serial ustiga bosing:",
+        reply_markup=get_admin_series_stats_keyboard(series, page, total_pages)
+    )
     await callback.answer()
 
 # --- REQUIRED CHANNELS & SUBSCRIPTIONS ---
@@ -378,8 +425,29 @@ async def start_broadcast(callback: CallbackQuery, state: FSMContext, bot: Bot):
                 reply_markup=reply_markup
             )
             success_count += 1
-        except Exception:
+            await set_user_active(uid)
+        except TelegramRetryAfter as e:
+            await asyncio.sleep(e.retry_after)
+            try:
+                await bot.copy_message(
+                    chat_id=uid, 
+                    from_chat_id=chat_id, 
+                    message_id=msg_id,
+                    reply_markup=reply_markup
+                )
+                success_count += 1
+                await set_user_active(uid)
+            except Exception:
+                fail_count += 1
+                await set_user_inactive(uid)
+        except (TelegramForbiddenError, Exception) as e:
             fail_count += 1
+            err_msg = str(e).lower()
+            if "blocked" in err_msg or "deactivated" in err_msg or "not found" in err_msg or "forbidden" in err_msg:
+                await set_user_inactive(uid)
+                
+        # Small delay to respect Telegram rate limits
+        await asyncio.sleep(0.035)
             
     target_titles = {
         "all": "Barcha foydalanuvchilar",
@@ -394,7 +462,7 @@ async def start_broadcast(callback: CallbackQuery, state: FSMContext, bot: Bot):
         f"🎯 Auditoriya: {t_title}\n"
         f"👥 Maqsadli foydalanuvchilar: {len(user_ids)} ta\n"
         f"✅ Muvaffaqiyatli yuborilganlar: {success_count} ta\n"
-        f"❌ Yuborilmaganlar (botni bloklaganlar): {fail_count} ta",
+        f"❌ Yuborilmaganlar (botni bloklaganlar/xatolik): {fail_count} ta",
         reply_markup=get_admin_panel()
     )
 

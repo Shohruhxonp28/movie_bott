@@ -233,7 +233,7 @@ async def show_movies_menu(message: Message, bot: Bot, state: FSMContext):
         return
         
     await message.answer(
-        "🎬 **Kinolar Katalogi**\n\nRo'yxatdan tanlang:",
+        f"🎬 **Kinolar Katalogi (1/{max(1, total_pages)}-sahifa)**\n\nRo'yxatdan tanlang:",
         reply_markup=get_movie_list_keyboard(items, 1, total_pages)
     )
 
@@ -253,7 +253,7 @@ async def show_series_menu(message: Message, bot: Bot, state: FSMContext):
         return
         
     await message.answer(
-        "📺 **Seriallar Katalogi**\n\nRo'yxatdan tanlang:",
+        f"📺 **Seriallar Katalogi (1/{max(1, total_pages)}-sahifa)**\n\nRo'yxatdan tanlang:",
         reply_markup=get_series_list_keyboard(items, 1, total_pages)
     )
 
