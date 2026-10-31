@@ -1,4 +1,5 @@
 import datetime
+import asyncio
 import logging
 from typing import Optional, List, Dict, Any, Tuple
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
@@ -14,6 +15,8 @@ engine = create_async_engine(DATABASE_URL, echo=False)
 AsyncSessionLocal = async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
 
 DB_ADMIN_IDS = set()
+_movie_lock = asyncio.Lock()
+_series_lock = asyncio.Lock()
 logger = logging.getLogger(__name__)
 
 async def init_db():
@@ -165,23 +168,30 @@ async def has_join_request(user_id: int, channel_id: int) -> bool:
 
 # --- MOVIE FUNCTIONS ---
 async def add_movie(title: str, channel_id: int, message_id: int, file_id: str) -> Movie:
-    async with AsyncSessionLocal() as session:
-        async with session.begin():
-            # Generate next movie_code: max(movie_code) + 1, or 1 if empty
-            result = await session.execute(select(func.max(Movie.movie_code)))
-            max_code = result.scalar()
-            next_code = (max_code or 0) + 1
-            
-            movie = Movie(
-                movie_code=next_code,
-                title=title,
-                channel_id=channel_id,
-                message_id=message_id,
-                file_id=file_id
-            )
-            session.add(movie)
-            await session.commit()
-            return movie
+    async with _movie_lock:
+        for attempt in range(5):
+            try:
+                async with AsyncSessionLocal() as session:
+                    async with session.begin():
+                        # Generate next movie_code: max(movie_code) + 1, or 1 if empty
+                        result = await session.execute(select(func.max(Movie.movie_code)))
+                        max_code = result.scalar()
+                        next_code = (max_code or 0) + 1
+                        
+                        movie = Movie(
+                            movie_code=next_code,
+                            title=title,
+                            channel_id=channel_id,
+                            message_id=message_id,
+                            file_id=file_id
+                        )
+                        session.add(movie)
+                        await session.commit()
+                        return movie
+            except Exception as e:
+                if attempt == 4:
+                    raise e
+                await asyncio.sleep(0.05 * (attempt + 1))
 
 async def get_movie_by_code(code: int) -> Optional[Movie]:
     async with AsyncSessionLocal() as session:
@@ -252,22 +262,29 @@ async def get_top_10_movies() -> List[Movie]:
 
 # --- SERIES FUNCTIONS ---
 async def add_series(title: str, channel_link: Optional[str] = None, episodes_count: Optional[int] = None) -> Series:
-    async with AsyncSessionLocal() as session:
-        async with session.begin():
-            # Series code starts from 1000 to avoid overlapping with movies
-            result = await session.execute(select(func.max(Series.series_code)))
-            max_code = result.scalar()
-            next_code = (max_code or 999) + 1
-            
-            series = Series(
-                series_code=next_code,
-                title=title,
-                channel_link=channel_link,
-                episodes_count=episodes_count
-            )
-            session.add(series)
-            await session.commit()
-            return series
+    async with _series_lock:
+        for attempt in range(5):
+            try:
+                async with AsyncSessionLocal() as session:
+                    async with session.begin():
+                        # Series code starts from 1000 to avoid overlapping with movies
+                        result = await session.execute(select(func.max(Series.series_code)))
+                        max_code = result.scalar()
+                        next_code = (max_code or 999) + 1
+                        
+                        series = Series(
+                            series_code=next_code,
+                            title=title,
+                            channel_link=channel_link,
+                            episodes_count=episodes_count
+                        )
+                        session.add(series)
+                        await session.commit()
+                        return series
+            except Exception as e:
+                if attempt == 4:
+                    raise e
+                await asyncio.sleep(0.05 * (attempt + 1))
 
 async def add_series_episode(series_code: int, episode_number: int, channel_id: int, message_id: int, file_id: str, season_number: int = 1) -> SeriesEpisode:
     async with AsyncSessionLocal() as session:

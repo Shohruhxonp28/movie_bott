@@ -510,13 +510,14 @@ async def process_movie_media_upload(message: Message, state: FSMContext, bot: B
         await message.answer("❌ Iltimos, yaroqli video, hujjat, animatsiya yoki audio fayl yuboring.")
         return
         
-    data = await state.get_data()
-    title = data.get("movie_title")
+    # Avval yuborilgan videoning o'z matnidan (caption) nomni aniqlashga harakat qilamiz
+    caption = message.caption or message.text
+    title = extract_movie_title(caption)
     
-    # Matndan yoki captiondan avtomatik nomni aniqlashga harakat qilamiz
+    # Agar post matnida nom bo'lmasa, state'da avval kiritilgan nom bor-yo'qligini tekshiramiz
     if not title:
-        caption = message.caption or message.text
-        title = extract_movie_title(caption)
+        data = await state.get_data()
+        title = data.get("movie_title")
         
     if title:
         # Nom aniqlandi -> darhol saqlash kanaliga va DB ga qo'shamiz

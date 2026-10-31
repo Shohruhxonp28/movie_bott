@@ -122,6 +122,8 @@ def clean_title_candidate(text: str) -> str:
         text = text.replace('_', ' ')
     # Strip leading hashtags, emojis, bullets, colons, dashes
     text = re.sub(r'^[#🎥🎬🍿📽️🎞️📹📀📺🔹🔸▪️▫️•\-\s:]+', '', text)
+    # Strip leading labels like Kino:, Film:, Nomi: if present
+    text = re.sub(r'^(?:kino|film|nomi|kino\s*nomi|film\s*nomi|name|название)\s*[:：\-–—]\s*', '', text, flags=re.IGNORECASE)
     # Remove URLs and @mentions
     text = re.sub(r'https?://\S+', '', text)
     text = re.sub(r'@\w+', '', text)
