@@ -467,7 +467,56 @@ async def start_broadcast(callback: CallbackQuery, state: FSMContext, bot: Bot):
         reply_markup=get_admin_panel()
     )
 
-# --- ADD MOVIE ---
+# --- ADD MOVIE (CONCURRENCY & FLOOD PROTECTED) ---
+_storage_forward_lock = asyncio.Lock()
+
+async def safe_forward_to_storage(bot: Bot, from_chat_id: int, message_id: int, max_retries: int = 5):
+    """
+    Kanalga bir vaqtda 20+ ta kino tashlanganda Telegram flood limitiga tushib qolmaslik
+    uchun asinxron navbat va avtomatik retry mexanizmi.
+    """
+    async with _storage_forward_lock:
+        for attempt in range(max_retries):
+            try:
+                forwarded = await bot.forward_message(
+                    chat_id=STORAGE_CHANNEL_ID,
+                    from_chat_id=from_chat_id,
+                    message_id=message_id
+                )
+                await asyncio.sleep(0.08)  # Telegram limitiga tushmaslik uchun qisqa oraliq
+                return forwarded
+            except TelegramRetryAfter as e:
+                logger.warning(f"Telegram flood limit: sleeping {e.retry_after}s before retry")
+                await asyncio.sleep(e.retry_after + 0.5)
+            except Exception:
+                try:
+                    forwarded = await bot.copy_message(
+                        chat_id=STORAGE_CHANNEL_ID,
+                        from_chat_id=from_chat_id,
+                        message_id=message_id
+                    )
+                    await asyncio.sleep(0.08)
+                    return forwarded
+                except TelegramRetryAfter as e:
+                    logger.warning(f"Telegram flood limit: sleeping {e.retry_after}s before retry")
+                    await asyncio.sleep(e.retry_after + 0.5)
+                except Exception as e:
+                    if attempt == max_retries - 1:
+                        raise e
+                    await asyncio.sleep(0.2)
+
+async def safe_admin_answer(message: Message, text: str, reply_markup=None):
+    try:
+        await message.answer(text, reply_markup=reply_markup)
+    except TelegramRetryAfter as e:
+        await asyncio.sleep(e.retry_after + 0.5)
+        try:
+            await message.answer(text, reply_markup=reply_markup)
+        except Exception as err:
+            logger.error(f"safe_admin_answer failed after retry: {err}")
+    except Exception as e:
+        logger.error(f"safe_admin_answer failed: {e}")
+
 @admin_router.callback_query(F.data == "admin_add_movie")
 async def add_movie_start(callback: CallbackQuery, state: FSMContext):
     if not is_admin_callback(callback):
@@ -482,7 +531,8 @@ async def add_movie_start(callback: CallbackQuery, state: FSMContext):
     text = (
         "🎬 **Kino qo'shish**\n\n"
         "Kino faylini (video yoki hujjat) yuboring yoki postni to'g'ridan-to'g'ri forward qiling.\n"
-        "⚡ _Post matnida kino nomi bo'lsa (masalan: `#🎥 Kino nomi`), bot uni avtomatik aniqlaydi va qo'shadi._\n\n"
+        "⚡ _Post matnida kino nomi bo'lsa (masalan: `#🎥 Kino nomi`), bot uni avtomatik aniqlaydi va qo'shadi._\n"
+        "💡 _Bir vaqtning o'zida 20+ ta filmni ham bemalol tashlashingiz mumkin, barchasi navbat bilan to'liq qo'shiladi._\n\n"
         "Yoki avval kino nomini matn sifatida yuborishingiz ham mumkin:"
     )
     await callback.message.edit_text(text, reply_markup=builder.as_markup())
@@ -507,7 +557,7 @@ async def process_movie_media_upload(message: Message, state: FSMContext, bot: B
         file_id = message.audio.file_id
         
     if not file_id:
-        await message.answer("❌ Iltimos, yaroqli video, hujjat, animatsiya yoki audio fayl yuboring.")
+        await safe_admin_answer(message, "❌ Iltimos, yaroqli video, hujjat, animatsiya yoki audio fayl yuboring.")
         return
         
     # Avval yuborilgan videoning o'z matnidan (caption) nomni aniqlashga harakat qilamiz
@@ -522,18 +572,11 @@ async def process_movie_media_upload(message: Message, state: FSMContext, bot: B
     if title:
         # Nom aniqlandi -> darhol saqlash kanaliga va DB ga qo'shamiz
         try:
-            try:
-                forwarded = await bot.forward_message(
-                    chat_id=STORAGE_CHANNEL_ID,
-                    from_chat_id=message.chat.id,
-                    message_id=message.message_id
-                )
-            except Exception:
-                forwarded = await bot.copy_message(
-                    chat_id=STORAGE_CHANNEL_ID,
-                    from_chat_id=message.chat.id,
-                    message_id=message.message_id
-                )
+            forwarded = await safe_forward_to_storage(
+                bot=bot,
+                from_chat_id=message.chat.id,
+                message_id=message.message_id
+            )
                 
             movie = await add_movie(
                 title=title,
@@ -542,8 +585,13 @@ async def process_movie_media_upload(message: Message, state: FSMContext, bot: B
                 file_id=file_id
             )
             
-            await state.clear()
-            await message.answer(
+            # Agar oldin biror state ochilgan bo'lsa, tozalaymiz
+            curr = await state.get_state()
+            if curr in [AddMovieState.waiting_for_title, AddMovieState.waiting_for_file]:
+                await state.clear()
+
+            await safe_admin_answer(
+                message,
                 f"✅ **Kino muvaffaqiyatli qo'shildi!**\n\n"
                 f"🎬 Nomi: {movie.title}\n"
                 f"🆔 Kodi: `{movie.movie_code}`",
@@ -551,7 +599,10 @@ async def process_movie_media_upload(message: Message, state: FSMContext, bot: B
             )
         except Exception as e:
             logger.error(f"Error adding movie automatically: {e}")
-            await message.answer(f"❌ Kino qo'shishda xatolik: {e}\nSaqlash kanali ID'si to'g'ri ekanligini va bot u yerda admin ekanligini tekshiring.")
+            await safe_admin_answer(
+                message,
+                f"❌ Kino qo'shishda xatolik: {e}\nSaqlash kanali ID'si to'g'ri ekanligini va bot u yerda admin ekanligini tekshiring."
+            )
     else:
         # Nomni aniqlab bo'lmadi -> faylni vaqtinchalik saqlab, admindan nom so'raymiz
         await state.update_data(
@@ -565,7 +616,8 @@ async def process_movie_media_upload(message: Message, state: FSMContext, bot: B
         builder = InlineKeyboardBuilder()
         builder.button(text="🔙 Bekor qilish", callback_data="admin_back")
         
-        await message.answer(
+        await safe_admin_answer(
+            message,
             "❓ **Videodan kino nomini avtomatik aniqlab bo'lmadi.**\n\n"
             "✍️ Iltimos, ushbu kino nomini yuboring:",
             reply_markup=builder.as_markup()
@@ -578,7 +630,7 @@ async def process_movie_title_text(message: Message, state: FSMContext, bot: Bot
         
     title = message.text.strip()
     if not title:
-        await message.answer("❌ Kino nomi bo'sh bo'lishi mumkin emas. Iltimos, nomni yuboring:")
+        await safe_admin_answer(message, "❌ Kino nomi bo'sh bo'lishi mumkin emas. Iltimos, nomni yuboring:")
         return
         
     data = await state.get_data()
@@ -589,18 +641,11 @@ async def process_movie_title_text(message: Message, state: FSMContext, bot: Bot
     if pending_file_id and pending_message_id and pending_chat_id:
         # Fayl avval yuborilgan, endi unga nom berildi
         try:
-            try:
-                forwarded = await bot.forward_message(
-                    chat_id=STORAGE_CHANNEL_ID,
-                    from_chat_id=pending_chat_id,
-                    message_id=pending_message_id
-                )
-            except Exception:
-                forwarded = await bot.copy_message(
-                    chat_id=STORAGE_CHANNEL_ID,
-                    from_chat_id=pending_chat_id,
-                    message_id=pending_message_id
-                )
+            forwarded = await safe_forward_to_storage(
+                bot=bot,
+                from_chat_id=pending_chat_id,
+                message_id=pending_message_id
+            )
                 
             movie = await add_movie(
                 title=title,
@@ -610,7 +655,8 @@ async def process_movie_title_text(message: Message, state: FSMContext, bot: Bot
             )
             
             await state.clear()
-            await message.answer(
+            await safe_admin_answer(
+                message,
                 f"✅ **Kino muvaffaqiyatli qo'shildi!**\n\n"
                 f"🎬 Nomi: {movie.title}\n"
                 f"🆔 Kodi: `{movie.movie_code}`",
@@ -618,7 +664,10 @@ async def process_movie_title_text(message: Message, state: FSMContext, bot: Bot
             )
         except Exception as e:
             logger.error(f"Error adding movie with manual title: {e}")
-            await message.answer(f"❌ Kino qo'shishda xatolik: {e}\nSaqlash kanali ID'si to'g'ri ekanligini va bot u yerda admin ekanligini tekshiring.")
+            await safe_admin_answer(
+                message,
+                f"❌ Kino qo'shishda xatolik: {e}\nSaqlash kanali ID'si to'g'ri ekanligini va bot u yerda admin ekanligini tekshiring."
+            )
     else:
         # Admin avval nom yubordi, endi fayl kutamiz
         await state.update_data(movie_title=title)
@@ -628,7 +677,8 @@ async def process_movie_title_text(message: Message, state: FSMContext, bot: Bot
         builder = InlineKeyboardBuilder()
         builder.button(text="🔙 Bekor qilish", callback_data="admin_back")
         
-        await message.answer(
+        await safe_admin_answer(
+            message,
             f"🎬 Kino nomi: **{title}**\n\n"
             "📁 Endi kino faylini yuboring (Video, Hujjat va h.k.):",
             reply_markup=builder.as_markup()
