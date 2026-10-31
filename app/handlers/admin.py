@@ -3,7 +3,8 @@ import datetime
 import asyncio
 from aiogram import Router, F, Bot
 from aiogram.types import Message, CallbackQuery, InlineKeyboardButton
-from aiogram.filters import Command
+from aiogram.filters import Command, StateFilter
+from app.utils import extract_movie_title
 from aiogram.fsm.context import FSMContext
 from aiogram.exceptions import TelegramBadRequest, TelegramRetryAfter, TelegramForbiddenError
 from app.config import ADMIN_IDS, STORAGE_CHANNEL_ID
@@ -468,69 +469,169 @@ async def start_broadcast(callback: CallbackQuery, state: FSMContext, bot: Bot):
 
 # --- ADD MOVIE ---
 @admin_router.callback_query(F.data == "admin_add_movie")
-async def add_movie_title(callback: CallbackQuery, state: FSMContext):
+async def add_movie_start(callback: CallbackQuery, state: FSMContext):
     if not is_admin_callback(callback):
         return
+    await state.clear()
     await state.set_state(AddMovieState.waiting_for_title)
-    await callback.message.edit_text("🎬 Iltimos, kino nomini yuboring:")
+    
+    from aiogram.utils.keyboard import InlineKeyboardBuilder
+    builder = InlineKeyboardBuilder()
+    builder.button(text="🔙 Bekor qilish", callback_data="admin_back")
+    
+    text = (
+        "🎬 **Kino qo'shish**\n\n"
+        "Kino faylini (video yoki hujjat) yuboring yoki postni to'g'ridan-to'g'ri forward qiling.\n"
+        "⚡ _Post matnida kino nomi bo'lsa (masalan: `#🎥 Kino nomi`), bot uni avtomatik aniqlaydi va qo'shadi._\n\n"
+        "Yoki avval kino nomini matn sifatida yuborishingiz ham mumkin:"
+    )
+    await callback.message.edit_text(text, reply_markup=builder.as_markup())
     await callback.answer()
 
-@admin_router.message(AddMovieState.waiting_for_title)
-async def add_movie_file(message: Message, state: FSMContext):
+@admin_router.message(
+    StateFilter(None, AddMovieState.waiting_for_title, AddMovieState.waiting_for_file),
+    F.video | F.document | F.animation | F.audio
+)
+async def process_movie_media_upload(message: Message, state: FSMContext, bot: Bot):
     if not is_admin(message):
         return
-    title = message.text.strip()
-    await state.update_data(movie_title=title)
-    await state.set_state(AddMovieState.waiting_for_file)
-    await message.answer("📁 Endi kino faylini yuboring (Video, Hujjat va h.k.):")
-
-@admin_router.message(AddMovieState.waiting_for_file)
-async def process_movie_file(message: Message, state: FSMContext, bot: Bot):
-    if not is_admin(message):
-        return
-    
+        
     file_id = None
     if message.video:
         file_id = message.video.file_id
     elif message.document:
         file_id = message.document.file_id
-    elif message.audio:
-        file_id = message.audio.file_id
     elif message.animation:
         file_id = message.animation.file_id
-    else:
+    elif message.audio:
+        file_id = message.audio.file_id
+        
+    if not file_id:
         await message.answer("❌ Iltimos, yaroqli video, hujjat, animatsiya yoki audio fayl yuboring.")
         return
         
     data = await state.get_data()
     title = data.get("movie_title")
     
-    try:
-        # Forward message to storage channel
-        forwarded = await bot.forward_message(
-            chat_id=STORAGE_CHANNEL_ID,
-            from_chat_id=message.chat.id,
-            message_id=message.message_id
-        )
+    # Matndan yoki captiondan avtomatik nomni aniqlashga harakat qilamiz
+    if not title:
+        caption = message.caption or message.text
+        title = extract_movie_title(caption)
         
-        # Save to DB
-        movie = await add_movie(
-            title=title,
-            channel_id=STORAGE_CHANNEL_ID,
-            message_id=forwarded.message_id,
-            file_id=file_id
+    if title:
+        # Nom aniqlandi -> darhol saqlash kanaliga va DB ga qo'shamiz
+        try:
+            try:
+                forwarded = await bot.forward_message(
+                    chat_id=STORAGE_CHANNEL_ID,
+                    from_chat_id=message.chat.id,
+                    message_id=message.message_id
+                )
+            except Exception:
+                forwarded = await bot.copy_message(
+                    chat_id=STORAGE_CHANNEL_ID,
+                    from_chat_id=message.chat.id,
+                    message_id=message.message_id
+                )
+                
+            movie = await add_movie(
+                title=title,
+                channel_id=STORAGE_CHANNEL_ID,
+                message_id=forwarded.message_id,
+                file_id=file_id
+            )
+            
+            await state.clear()
+            await message.answer(
+                f"✅ **Kino muvaffaqiyatli qo'shildi!**\n\n"
+                f"🎬 Nomi: {movie.title}\n"
+                f"🆔 Kodi: `{movie.movie_code}`",
+                reply_markup=get_admin_panel()
+            )
+        except Exception as e:
+            logger.error(f"Error adding movie automatically: {e}")
+            await message.answer(f"❌ Kino qo'shishda xatolik: {e}\nSaqlash kanali ID'si to'g'ri ekanligini va bot u yerda admin ekanligini tekshiring.")
+    else:
+        # Nomni aniqlab bo'lmadi -> faylni vaqtinchalik saqlab, admindan nom so'raymiz
+        await state.update_data(
+            pending_file_id=file_id,
+            pending_message_id=message.message_id,
+            pending_chat_id=message.chat.id
         )
+        await state.set_state(AddMovieState.waiting_for_title)
         
-        await state.clear()
+        from aiogram.utils.keyboard import InlineKeyboardBuilder
+        builder = InlineKeyboardBuilder()
+        builder.button(text="🔙 Bekor qilish", callback_data="admin_back")
+        
         await message.answer(
-            f"✅ **Kino muvaffaqiyatli qo'shildi!**\n\n"
-            f"🎬 Nomi: {movie.title}\n"
-            f"🆔 Kodi: `{movie.movie_code}`",
-            reply_markup=get_admin_panel()
+            "❓ **Videodan kino nomini avtomatik aniqlab bo'lmadi.**\n\n"
+            "✍️ Iltimos, ushbu kino nomini yuboring:",
+            reply_markup=builder.as_markup()
         )
-    except Exception as e:
-        logger.error(f"Error adding movie: {e}")
-        await message.answer(f"❌ Kino qo'shishda xatolik: {e}\nSaqlash kanali ID'si to'g'ri ekanligini va bot u yerda admin ekanligini tekshiring.")
+
+@admin_router.message(AddMovieState.waiting_for_title, F.text)
+async def process_movie_title_text(message: Message, state: FSMContext, bot: Bot):
+    if not is_admin(message):
+        return
+        
+    title = message.text.strip()
+    if not title:
+        await message.answer("❌ Kino nomi bo'sh bo'lishi mumkin emas. Iltimos, nomni yuboring:")
+        return
+        
+    data = await state.get_data()
+    pending_file_id = data.get("pending_file_id")
+    pending_message_id = data.get("pending_message_id")
+    pending_chat_id = data.get("pending_chat_id")
+    
+    if pending_file_id and pending_message_id and pending_chat_id:
+        # Fayl avval yuborilgan, endi unga nom berildi
+        try:
+            try:
+                forwarded = await bot.forward_message(
+                    chat_id=STORAGE_CHANNEL_ID,
+                    from_chat_id=pending_chat_id,
+                    message_id=pending_message_id
+                )
+            except Exception:
+                forwarded = await bot.copy_message(
+                    chat_id=STORAGE_CHANNEL_ID,
+                    from_chat_id=pending_chat_id,
+                    message_id=pending_message_id
+                )
+                
+            movie = await add_movie(
+                title=title,
+                channel_id=STORAGE_CHANNEL_ID,
+                message_id=forwarded.message_id,
+                file_id=pending_file_id
+            )
+            
+            await state.clear()
+            await message.answer(
+                f"✅ **Kino muvaffaqiyatli qo'shildi!**\n\n"
+                f"🎬 Nomi: {movie.title}\n"
+                f"🆔 Kodi: `{movie.movie_code}`",
+                reply_markup=get_admin_panel()
+            )
+        except Exception as e:
+            logger.error(f"Error adding movie with manual title: {e}")
+            await message.answer(f"❌ Kino qo'shishda xatolik: {e}\nSaqlash kanali ID'si to'g'ri ekanligini va bot u yerda admin ekanligini tekshiring.")
+    else:
+        # Admin avval nom yubordi, endi fayl kutamiz
+        await state.update_data(movie_title=title)
+        await state.set_state(AddMovieState.waiting_for_file)
+        
+        from aiogram.utils.keyboard import InlineKeyboardBuilder
+        builder = InlineKeyboardBuilder()
+        builder.button(text="🔙 Bekor qilish", callback_data="admin_back")
+        
+        await message.answer(
+            f"🎬 Kino nomi: **{title}**\n\n"
+            "📁 Endi kino faylini yuboring (Video, Hujjat va h.k.):",
+            reply_markup=builder.as_markup()
+        )
 
 # --- MOVIE LIST PAGINATION (ADMIN) ---
 @admin_router.callback_query(F.data.startswith("admin_movies_page_"))
