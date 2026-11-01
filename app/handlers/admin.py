@@ -80,6 +80,7 @@ async def show_stats(callback: CallbackQuery):
         f"⚡ Faol foydalanuvchilar (30 kun): {stats.get('active_30d', 0)}\n"
         f"🚫 Botni bloklaganlar: {stats.get('blocked_users', 0)}\n"
         f"⭐ VIP foydalanuvchilar: {stats['vip_users']}\n"
+        f"👥 Jami referallar: {stats.get('total_referrals', 0)}\n"
         f"🎬 Jami filmlar: {stats['movies']}\n"
         f"📺 Jami seriallar: {stats['series']}\n"
         f"🔍 Jami qidiruvlar: {stats['searches']}\n"
@@ -168,12 +169,16 @@ async def add_channel_prompt(callback: CallbackQuery, state: FSMContext):
     if not is_admin_callback(callback):
         return
     await state.set_state(AdminState.waiting_for_add_channel)
+    channels = await get_required_channels()
+    next_num = len(channels) + 1
     await callback.message.edit_text(
         "📢 **Telegram Kanal qo'shish**\n\n"
-        "Iltimos, kanal ma'lumotlarini quyidagi formatda yuboring:\n\n"
-        "`channel_id|taklif_linki|kanal_nomi`\n\n"
+        "Iltimos, kanal ma'lumotlarini yuboring:\n\n"
+        "`channel_id|taklif_linki`\n\n"
+        f"Kanalga avtomatik ravishda `{next_num}-kanal` deb nom beriladi.\n\n"
         "Masalan:\n"
-        "`-1001234567890|https://t.me/+AbCdEf|Mening Kanalim`"
+        "`-1001234567890|https://t.me/+AbCdEf`\n\n"
+        "*(Ixtiyoriy: o'zingiz nom bermoqchi bo'lsangiz: `-1001234567890|link|Maxsus Nom`)*"
     )
     await callback.answer()
 
@@ -182,18 +187,19 @@ async def add_channel_save(message: Message, state: FSMContext):
     if not is_admin(message):
         return
     parts = message.text.split("|")
-    if len(parts) != 3:
-        await message.answer("❌ Noto'g'ri format. Foydalaning: `channel_id|taklif_linki|kanal_nomi`")
+    if len(parts) < 2:
+        await message.answer("❌ Noto'g'ri format. Foydalaning: `channel_id|taklif_linki`")
         return
     
     try:
         channel_id = int(parts[0].strip())
         invite_link = parts[1].strip()
-        name = parts[2].strip()
+        channels = await get_required_channels()
+        name = parts[2].strip() if len(parts) >= 3 else f"{len(channels) + 1}-kanal"
         
         await add_required_channel(channel_id, invite_link, name, sub_type="channel")
         await state.clear()
-        await message.answer("✅ Telegram kanal muvaffaqiyatli qo'shildi!", reply_markup=get_admin_panel())
+        await message.answer(f"✅ Telegram kanal ({name}) muvaffaqiyatli qo'shildi!", reply_markup=get_admin_panel())
     except ValueError:
         await message.answer("❌ Kanal ID raqam (integer) bo'lishi kerak. Qayta urinib ko'ring.")
 
@@ -202,12 +208,15 @@ async def add_bot_prompt(callback: CallbackQuery, state: FSMContext):
     if not is_admin_callback(callback):
         return
     await state.set_state(AdminState.waiting_for_add_bot)
+    channels = await get_required_channels()
+    next_num = len(channels) + 1
     await callback.message.edit_text(
         "🤖 **Telegram Bot qo'shish**\n\n"
-        "Iltimos, bot ma'lumotlarini quyidagi formatda yuboring:\n\n"
-        "`@bot_username|taklif_linki|bot_nomi`\n\n"
+        "Iltimos, bot ma'lumotlarini yuboring:\n\n"
+        "`@bot_username|taklif_linki`\n\n"
+        f"Botga avtomatik ravishda `{next_num}-kanal` deb nom beriladi.\n\n"
         "Masalan:\n"
-        "`@kinobot_partnyor|https://t.me/kinobot_partnyor|Hamkor Botimiz`"
+        "`@kinobot_partnyor|https://t.me/kinobot_partnyor`"
     )
     await callback.answer()
 
@@ -217,28 +226,32 @@ async def add_bot_save(message: Message, state: FSMContext):
         return
     parts = message.text.split("|")
     if len(parts) < 2:
-        await message.answer("❌ Noto'g'ri format. Foydalaning: `@bot_username|taklif_linki|bot_nomi`")
+        await message.answer("❌ Noto'g'ri format. Foydalaning: `@bot_username|taklif_linki`")
         return
         
     bot_user = parts[0].strip().replace("@", "")
-    invite_link = parts[1].strip() if len(parts) >= 2 else f"https://t.me/{bot_user}"
-    name = parts[2].strip() if len(parts) >= 3 else parts[1].strip()
+    invite_link = parts[1].strip()
+    channels = await get_required_channels()
+    name = parts[2].strip() if len(parts) >= 3 else f"{len(channels) + 1}-kanal"
     
     await add_required_channel(None, invite_link, name, sub_type="bot", target_username=bot_user)
     await state.clear()
-    await message.answer(f"✅ Telegram bot (@{bot_user}) muvaffaqiyatli qo'shildi!", reply_markup=get_admin_panel())
+    await message.answer(f"✅ Telegram bot ({name} - @{bot_user}) muvaffaqiyatli qo'shildi!", reply_markup=get_admin_panel())
 
 @admin_router.callback_query(F.data == "admin_add_insta")
 async def add_insta_prompt(callback: CallbackQuery, state: FSMContext):
     if not is_admin_callback(callback):
         return
     await state.set_state(AdminState.waiting_for_add_insta)
+    channels = await get_required_channels()
+    next_num = len(channels) + 1
     await callback.message.edit_text(
         "📸 **Instagram Sahifa qo'shish**\n\n"
-        "Iltimos, Instagram ma'lumotlarini quyidagi formatda yuboring:\n\n"
-        "`@insta_username|taklif_linki|sahifa_nomi`\n\n"
+        "Iltimos, Instagram ma'lumotlarini yuboring:\n\n"
+        "`@insta_username|taklif_linki`\n\n"
+        f"Sahifaga avtomatik ravishda `{next_num}-kanal` deb nom beriladi.\n\n"
         "Masalan:\n"
-        "`@kinotime_uz|https://instagram.com/kinotime_uz|Instagram Sahifamiz`"
+        "`@kinotime_uz|https://instagram.com/kinotime_uz`"
     )
     await callback.answer()
 
@@ -248,16 +261,17 @@ async def add_insta_save(message: Message, state: FSMContext):
         return
     parts = message.text.split("|")
     if len(parts) < 2:
-        await message.answer("❌ Noto'g'ri format. Foydalaning: `@insta_username|taklif_linki|sahifa_nomi`")
+        await message.answer("❌ Noto'g'ri format. Foydalaning: `@insta_username|taklif_linki`")
         return
         
     insta_user = parts[0].strip().replace("@", "")
-    invite_link = parts[1].strip() if len(parts) >= 2 else f"https://instagram.com/{insta_user}"
-    name = parts[2].strip() if len(parts) >= 3 else parts[1].strip()
+    invite_link = parts[1].strip()
+    channels = await get_required_channels()
+    name = parts[2].strip() if len(parts) >= 3 else f"{len(channels) + 1}-kanal"
     
     await add_required_channel(None, invite_link, name, sub_type="instagram", target_username=insta_user)
     await state.clear()
-    await message.answer(f"✅ Instagram sahifasi (@{insta_user}) muvaffaqiyatli qo'shildi!", reply_markup=get_admin_panel())
+    await message.answer(f"✅ Instagram sahifasi ({name} - @{insta_user}) muvaffaqiyatli qo'shildi!", reply_markup=get_admin_panel())
 
 @admin_router.callback_query(F.data.startswith("admin_delete_sub_"))
 async def delete_sub_action(callback: CallbackQuery):

@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, Asyn
 from sqlalchemy import select, update, delete, func, text
 from sqlalchemy.orm import selectinload
 from app.config import DATABASE_URL
-from app.models import Base, User, Movie, RequiredChannel, Setting, Series, SeriesEpisode, VipPlan, AdminUser, DailySearch, JoinRequest, UserBotStart, UserInstagramSub
+from app.models import Base, User, Movie, RequiredChannel, Setting, Series, SeriesEpisode, VipPlan, AdminUser, DailySearch, JoinRequest, UserBotStart, UserInstagramSub, Referral
 
 # Create async engine
 engine = create_async_engine(DATABASE_URL, echo=False)
@@ -36,6 +36,7 @@ async def init_db():
         try:
             await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE;"))
             await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS last_active_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;"))
+            await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS referred_by BIGINT;"))
         except Exception:
             pass
         
@@ -736,3 +737,59 @@ async def get_user_ids_by_target(target: str) -> List[int]:
         result = await session.execute(query)
         return list(result.scalars().all())
 
+
+# --- REFERRAL FUNCTIONS ---
+async def add_referral(referrer_id: int, referred_id: int) -> bool:
+    if referrer_id == referred_id:
+        return False
+    async with AsyncSessionLocal() as session:
+        async with session.begin():
+            res = await session.execute(select(Referral).where(Referral.referred_id == referred_id))
+            if res.scalars().first() is not None:
+                return False
+            ref_user = await session.get(User, referrer_id)
+            if not ref_user:
+                return False
+            referral = Referral(referrer_id=referrer_id, referred_id=referred_id)
+            session.add(referral)
+            user = await session.get(User, referred_id)
+            if user:
+                user.referred_by = referrer_id
+            await session.commit()
+            return True
+
+async def get_referral_count(user_id: int) -> int:
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(func.count(Referral.id)).where(Referral.referrer_id == user_id)
+        )
+        return result.scalar() or 0
+
+async def get_top_referrers(limit: int = 10) -> List[Tuple[User, int]]:
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(User, func.count(Referral.id).label("ref_count"))
+            .join(Referral, Referral.referrer_id == User.id)
+            .group_by(User.id)
+            .order_by(func.count(Referral.id).desc())
+            .limit(limit)
+        )
+        return [(row[0], row[1]) for row in result.all()]
+
+async def get_total_referrals_count() -> int:
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(select(func.count(Referral.id)))
+        return result.scalar() or 0
+
+async def add_vip_days(user_id: int, days: int) -> Optional[datetime.datetime]:
+    async with AsyncSessionLocal() as session:
+        async with session.begin():
+            result = await session.execute(select(User).where(User.id == user_id))
+            db_user = result.scalars().first()
+            if not db_user:
+                return None
+            now = datetime.datetime.utcnow()
+            start_date = db_user.vip_until if (db_user.vip_until and db_user.vip_until > now) else now
+            db_user.vip_until = start_date + datetime.timedelta(days=days)
+            await session.commit()
+            return db_user.vip_until

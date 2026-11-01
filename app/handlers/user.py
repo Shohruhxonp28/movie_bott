@@ -9,12 +9,12 @@ from app.database import (
     get_setting, search_movies_db, increment_search_count, get_user,
     get_series_by_code, search_series_db, increment_series_search_count, get_vip_plans,
     get_combined_catalog, increment_daily_search, get_all_series, get_series_count,
-    add_join_request, set_user_inactive
+    add_join_request, set_user_inactive, add_referral, get_referral_count, add_vip_days
 )
 from app.keyboards import (
     get_main_keyboard, get_join_channels_keyboard,
     get_movie_list_keyboard, get_share_keyboard,
-    get_user_vip_plans_keyboard, get_series_seasons_keyboard,
+    get_user_vip_plans_keyboard, get_referral_keyboard, get_series_seasons_keyboard,
     get_series_season_episodes_keyboard, get_series_list_keyboard
 )
 from app.utils import check_user_subscription, search_items_fuzzy
@@ -180,6 +180,37 @@ async def cmd_start(message: Message, command: CommandObject, state: FSMContext,
             if target_bot_user:
                 from app.database import record_user_bot_start
                 await record_user_bot_start(message.from_user.id, target_bot_user)
+        elif args.startswith("ref_") or (args.startswith("ref") and args[3:].isdigit()):
+            ref_str = args.replace("ref_", "").replace("ref", "")
+            if ref_str.isdigit():
+                referrer_id = int(ref_str)
+                if not existing_user and referrer_id != message.from_user.id:
+                    added = await add_referral(referrer_id, message.from_user.id)
+                    if added:
+                        try:
+                            ref_count = await get_referral_count(referrer_id)
+                            target_str = await get_setting("referral_target", "5")
+                            target = int(target_str) if target_str.isdigit() else 5
+                            days_str = await get_setting("referral_reward_days", "3")
+                            reward_days = int(days_str) if days_str.isdigit() else 3
+                            
+                            user_mention = message.from_user.full_name
+                            notify_text = (
+                                f"🎉 **Yangi do'stingiz qo'shildi!**\n\n"
+                                f"👤 **{user_mention}** sizning taklif havolangiz orqali botga kirdi.\n"
+                                f"👥 Jami taklif qilgan do'stlaringiz: **{ref_count} ta**"
+                            )
+                            
+                            if target > 0 and ref_count % target == 0:
+                                await add_vip_days(referrer_id, reward_days)
+                                notify_text += (
+                                    f"\n\n🎁 **TABRIKLAYMIZ!** Siz {ref_count} ta do'stingizni taklif qilganingiz uchun "
+                                    f"**{reward_days} kunlik bepul VIP** obunaga ega bo'ldingiz! ⭐"
+                                )
+                                
+                            await bot.send_message(chat_id=referrer_id, text=notify_text)
+                        except Exception as e:
+                            logger.error(f"Error notifying referrer {referrer_id}: {e}")
 
     if pending_code:
         is_subbed = await check_and_prompt_subscription(message, bot, state, pending_code)
@@ -373,3 +404,33 @@ async def process_search(message: Message, bot: Bot, state: FSMContext):
                     )
                 )
         await message.answer("Bir nechta mos keladigan natijalar topildi. Tanlang:", reply_markup=builder.as_markup())
+
+@user_router.message(F.text == "👥 Referal")
+async def show_referral_menu(message: Message, bot: Bot, state: FSMContext):
+    is_subbed = await check_and_prompt_subscription(message, bot, state)
+    if not is_subbed:
+        return
+        
+    user_id = message.from_user.id
+    bot_info = await bot.get_me()
+    bot_username = bot_info.username
+    ref_link = f"https://t.me/{bot_username}?start=ref_{user_id}"
+    
+    count = await get_referral_count(user_id)
+    target_str = await get_setting("referral_target", "5")
+    target = int(target_str) if target_str.isdigit() else 5
+    days_str = await get_setting("referral_reward_days", "3")
+    days = int(days_str) if days_str.isdigit() else 3
+    
+    text = (
+        "🎁 **Do'stlarni taklif qiling va bepul VIP oling!**\n\n"
+        f"🔗 **Sizning referal havolangiz:**\n`{ref_link}`\n\n"
+        f"👥 Taklif qilgan do'stlaringiz soni: **{count} ta**\n"
+        f"⭐ Har **{target} ta** yangi do'stingiz uchun **{days} kunlik bepul VIP** obunaga ega bo'lasiz!\n\n"
+        "Havolangizni do'stlaringizga yoki kanallarga ulashing 👇"
+    )
+    
+    await message.answer(
+        text,
+        reply_markup=get_referral_keyboard(bot_username, user_id)
+    )

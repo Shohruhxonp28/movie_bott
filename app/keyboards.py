@@ -1,3 +1,4 @@
+import urllib.parse
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
 from typing import List
@@ -8,8 +9,9 @@ def get_main_keyboard() -> ReplyKeyboardMarkup:
     builder.add(KeyboardButton(text="🎬 Kinolar"))
     builder.add(KeyboardButton(text="📺 Seriallar"))
     builder.add(KeyboardButton(text="⭐ VIP"))
+    builder.add(KeyboardButton(text="👥 Referal"))
     builder.add(KeyboardButton(text="ℹ️ Yordam"))
-    builder.adjust(2)
+    builder.adjust(2, 2, 1)
     return builder.as_markup(resize_keyboard=True)
 
 def get_join_channels_keyboard(channels: List[RequiredChannel], user_id: Optional[int] = None) -> InlineKeyboardMarkup:
@@ -18,6 +20,7 @@ def get_join_channels_keyboard(channels: List[RequiredChannel], user_id: Optiona
         sub_type = getattr(chan, "sub_type", "channel") or "channel"
         target = getattr(chan, "target_username", None) or chan.name
         url = chan.invite_link.strip() if chan.invite_link else ""
+        auto_name = f"{idx}-kanal"
         
         if sub_type == "instagram":
             if not url:
@@ -25,18 +28,20 @@ def get_join_channels_keyboard(channels: List[RequiredChannel], user_id: Optiona
                 url = f"https://instagram.com/{insta_user}"
             elif not (url.startswith("http://") or url.startswith("https://")):
                 url = f"https://{url}"
-            builder.button(text=f"📸 {chan.name} (Instagram)", url=url)
+            builder.button(text=f"📸 {auto_name} (Instagram)", url=url)
         elif sub_type == "bot":
             if not url:
                 bot_user = target.replace("@", "")
                 url = f"https://t.me/{bot_user}"
-                if user_id:
-                    url += f"?start=kb_{user_id}"
             else:
                 if not (url.startswith("http://") or url.startswith("https://")):
                     url = f"https://{url}"
-            builder.button(text=f"🤖 {chan.name} (Bot)", url=url)
-            builder.button(text=f"✅ {chan.name} (Start bosdim)", callback_data=f"confirm_bot_{chan.id}")
+            if user_id:
+                sep = "&" if "?" in url else "?"
+                if "start=" not in url:
+                    url += f"{sep}start=kb_{user_id}"
+            builder.button(text=f"🤖 {auto_name} (Bot)", url=url)
+            builder.button(text=f"✅ {auto_name} (Start bosdim)", callback_data=f"confirm_bot_{chan.id}")
         else:
             # Telegram channel
             if url.startswith("@"):
@@ -53,7 +58,7 @@ def get_join_channels_keyboard(channels: List[RequiredChannel], user_id: Optiona
             else:
                 if not (url.startswith("http://") or url.startswith("https://")):
                     url = f"https://t.me/{url}"
-            builder.button(text=f"📢 {chan.name}", url=url)
+            builder.button(text=f"📢 {auto_name}", url=url)
 
     builder.adjust(1)
     
@@ -534,3 +539,12 @@ def get_admin_series_stats_keyboard(series: List[Series], page: int, total_pages
     builder.row(InlineKeyboardButton(text="🔙 Statistikaga qaytish", callback_data="admin_stats"))
     return builder.as_markup()
 
+
+def get_referral_keyboard(bot_username: str, user_id: int) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    ref_link = f"https://t.me/{bot_username}?start=ref_{user_id}"
+    share_text = f"🍿 Kinolar va seriallarni eng yaxshi sifatda tomosha qiling!\n\nBotga kirish: {ref_link}"
+    share_url = f"https://t.me/share/url?url={ref_link}&text={urllib.parse.quote_plus(share_text)}"
+    builder.row(InlineKeyboardButton(text="📤 Do'stlarga ulashish", url=share_url))
+    builder.row(InlineKeyboardButton(text="🏆 Top referallar reytingi", callback_data="top_referrers"))
+    return builder.as_markup()

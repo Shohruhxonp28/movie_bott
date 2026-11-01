@@ -16,6 +16,7 @@ class User(Base):
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.utcnow)
     last_active_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, default=datetime.datetime.utcnow, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    referred_by: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
 
     @property
     def is_vip(self) -> bool:
@@ -121,3 +122,11 @@ class JoinRequest(Base):
     channel_id: Mapped[int] = mapped_column(BigInteger, index=True)
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.utcnow)
 
+
+class Referral(Base):
+    __tablename__ = "referrals"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    referrer_id: Mapped[int] = mapped_column(BigInteger, index=True)
+    referred_id: Mapped[int] = mapped_column(BigInteger, unique=True, index=True)
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.utcnow)
