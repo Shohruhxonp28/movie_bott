@@ -14,7 +14,7 @@ from app.database import (
 from app.keyboards import (
     get_main_keyboard, get_join_channels_keyboard,
     get_movie_list_keyboard, get_share_keyboard,
-    get_user_vip_plans_keyboard, get_referral_keyboard, get_series_seasons_keyboard,
+    get_user_vip_plans_keyboard, get_referral_keyboard, get_profile_keyboard, get_series_seasons_keyboard,
     get_series_season_episodes_keyboard, get_series_list_keyboard
 )
 from app.utils import check_user_subscription, search_items_fuzzy
@@ -433,4 +433,41 @@ async def show_referral_menu(message: Message, bot: Bot, state: FSMContext):
     await message.answer(
         text,
         reply_markup=get_referral_keyboard(bot_username, user_id)
+    )
+
+@user_router.message(F.text == "👤 Profil")
+async def show_profile_menu(message: Message, bot: Bot, state: FSMContext):
+    is_subbed = await check_and_prompt_subscription(message, bot, state)
+    if not is_subbed:
+        return
+        
+    user = await get_or_create_user(
+        user_id=message.from_user.id,
+        username=message.from_user.username,
+        full_name=message.from_user.full_name
+    )
+    
+    ref_count = await get_referral_count(user.id)
+    
+    username_str = f"@{user.username}" if user.username else "Mavjud emas"
+    join_date = user.created_at.strftime("%d.%m.%Y") if user.created_at else "Noma'lum"
+    
+    if user.is_vip and user.vip_until:
+        vip_status = f"Faol ⭐ ({user.vip_until.strftime('%d.%m.%Y %H:%M')} gacha)"
+    else:
+        vip_status = "Faol emas ❌"
+        
+    text = (
+        "👤 **Foydalanuvchi Profili**\n\n"
+        f"🆔 **ID:** `{user.id}`\n"
+        f"👤 **Ism:** {user.full_name}\n"
+        f"🔹 **Username:** {username_str}\n"
+        f"⭐ **VIP holati:** {vip_status}\n"
+        f"👥 **Taklif qilgan do'stlar:** {ref_count} ta\n"
+        f"📅 **A'zo bo'lgan sana:** {join_date}"
+    )
+    
+    await message.answer(
+        text,
+        reply_markup=get_profile_keyboard(is_vip=user.is_vip)
     )

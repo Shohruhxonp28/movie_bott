@@ -9,9 +9,10 @@ def get_main_keyboard() -> ReplyKeyboardMarkup:
     builder.add(KeyboardButton(text="🎬 Kinolar"))
     builder.add(KeyboardButton(text="📺 Seriallar"))
     builder.add(KeyboardButton(text="⭐ VIP"))
+    builder.add(KeyboardButton(text="👤 Profil"))
     builder.add(KeyboardButton(text="👥 Referal"))
     builder.add(KeyboardButton(text="ℹ️ Yordam"))
-    builder.adjust(2, 2, 1)
+    builder.adjust(2, 2, 2)
     return builder.as_markup(resize_keyboard=True)
 
 def get_join_channels_keyboard(channels: List[RequiredChannel], user_id: Optional[int] = None) -> InlineKeyboardMarkup:
@@ -547,4 +548,14 @@ def get_referral_keyboard(bot_username: str, user_id: int) -> InlineKeyboardMark
     share_url = f"https://t.me/share/url?url={ref_link}&text={urllib.parse.quote_plus(share_text)}"
     builder.row(InlineKeyboardButton(text="📤 Do'stlarga ulashish", url=share_url))
     builder.row(InlineKeyboardButton(text="🏆 Top referallar reytingi", callback_data="top_referrers"))
+    return builder.as_markup()
+
+def get_profile_keyboard(is_vip: bool) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    if is_vip:
+        builder.button(text="⭐ VIP obunani uzaytirish", callback_data="buy_vip")
+    else:
+        builder.button(text="⭐ VIP sotib olish", callback_data="buy_vip")
+    builder.button(text="👥 Referal bo'limi", callback_data="open_referral_menu")
+    builder.adjust(1)
     return builder.as_markup()

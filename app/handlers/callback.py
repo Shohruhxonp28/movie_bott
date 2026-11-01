@@ -441,3 +441,27 @@ async def process_series_page(callback: CallbackQuery, bot: Bot, state: FSMConte
 async def process_close_movies(callback: CallbackQuery):
     await callback.message.delete()
     await callback.answer()
+
+@callback_router.callback_query(F.data == "open_referral_menu")
+async def process_open_referral_menu(callback: CallbackQuery, bot: Bot):
+    user_id = callback.from_user.id
+    bot_info = await bot.get_me()
+    bot_username = bot_info.username
+    ref_link = f"https://t.me/{bot_username}?start=ref_{user_id}"
+    
+    count = await get_referral_count(user_id)
+    target_str = await get_setting("referral_target", "5")
+    target = int(target_str) if target_str.isdigit() else 5
+    days_str = await get_setting("referral_reward_days", "3")
+    days = int(days_str) if days_str.isdigit() else 3
+    
+    text = (
+        "🎁 **Do'stlarni taklif qiling va bepul VIP oling!**\n\n"
+        f"🔗 **Sizning referal havolangiz:**\n`{ref_link}`\n\n"
+        f"👥 Taklif qilgan do'stlaringiz soni: **{count} ta**\n"
+        f"⭐ Har **{target} ta** yangi do'stingiz uchun **{days} kunlik bepul VIP** obunaga ega bo'lasiz!\n\n"
+        "Havolangizni do'stlaringizga yoki kanallarga ulashing 👇"
+    )
+    from app.keyboards import get_referral_keyboard
+    await callback.message.edit_text(text, reply_markup=get_referral_keyboard(bot_username, user_id))
+    await callback.answer()
